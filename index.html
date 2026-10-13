@@ -221,6 +221,8 @@
       </div>
       <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple hidden>
       <div class="file-list" id="fileList"></div>
+       <div id="uploadSyncState" role="status" style="margin-top:10px;font-size:13px;color:#51646f">📡 File Excel sẽ được lưu Firebase ngay sau khi tải lên, không cần bấm Chạy ticker.</div>
+       <button id="uploadRetry" type="button" class="btn-amber" style="display:none;margin-top:10px">↻ Thử đồng bộ Excel lại</button>
     </div>
   </section>
 
@@ -241,6 +243,7 @@
           <option value="none">⚪ Chưa khai thác</option>
           <option value="kt">🟡 Đang khai thác</option>
           <option value="ok">🔴 Kết nối được</option>
+           <option value="giaodich">🟢 Đã kết nối giao dịch</option>
           <option value="tuchoi">⚫ Từ chối</option>
         </select>
         <button class="fclear" id="fClearAll" title="Xoá mọi bộ lọc">↺ Bỏ lọc</button>
@@ -267,6 +270,22 @@
     </div>
   </section>
 
+  <!-- REALTIME CUSTOMER ACTIVITY -->
+  <section class="card" id="activityCard">
+    <div class="card-h"><span class="num">LIVE</span><h2>📡 Quản trị theo dõi kết nối khách hàng</h2><span class="hint">Đọc trực tiếp từ Firebase — đồng bộ trên mọi máy</span></div>
+    <div class="card-b">
+      <div class="grid" style="margin-bottom:14px">
+        <div class="f-remote" id="liveKhaiThac">🟡 Đang khai thác: 0</div>
+        <div class="f-remote" id="liveKetNoi" style="background:#fff2f1;color:#9f342c">🔴 Kết nối được: 0</div>
+        <div class="f-remote" id="liveGiaoDich" style="background:#edf9f1;color:#177449">🟢 Kết nối giao dịch: 0</div>
+      </div>
+      <div class="filter-bar" style="margin-bottom:10px">
+        <select id="activityFilter" aria-label="Lọc trạng thái"><option value="">Tất cả hoạt động</option><option value="ok">🔴 Kết nối được</option><option value="giaodich">🟢 Kết nối giao dịch</option><option value="kt">🟡 Đang khai thác</option><option value="tuchoi">⚫ Từ chối</option></select>
+        <span class="tb-hint">Tên nhân viên · khách hàng · SĐT · giờ cập nhật</span>
+      </div>
+      <div id="activityRows" style="max-height:310px;overflow:auto" aria-live="polite">Đang tải hoạt động…</div>
+    </div>
+  </section>
   <!-- B3 SETTINGS -->
   <section class="card">
     <div class="card-h"><span class="num">B3</span><h2>Cài đặt hiển thị</h2><span class="hint">Thay đổi áp dụng ngay cho ticker đang chạy trên mọi máy</span></div>
@@ -329,6 +348,7 @@
     <div class="tp-t" id="tkPop2T"></div>
     <div class="tp-row">
       <button class="tp-ok" id="tkPop2OK">✔ Kết nối được</button>
+       <button class="tp-save" id="tkPop2GD" style="background:#16865b;color:white">💰 Kết nối giao dịch</button>
       <button class="tp-tc" id="tkPop2TC">✕ Từ chối</button>
       <button class="tp-undo" id="tkPop2UN">↺ Hoàn tác</button>
       <button class="tp-x" id="tkPop2X">Đóng</button>
@@ -411,27 +431,56 @@ drop.addEventListener("click", () => fi.click());
 drop.addEventListener("drop", e => readFiles(e.dataTransfer.files));
 fi.addEventListener("change", () => { readFiles(fi.files); fi.value=""; });
 
-function readFiles(list){
-  /* ★ AN TOÀN DỮ LIỆU: trước khi thêm file mới, biến dữ liệu cũ đang
-     phát (từ Firebase, chưa có trong files[]) thành các "file thật" để
-     NỐI TIẾP — không bao giờ ghi đè/mất dữ liệu + trạng thái cũ. */
-  materializeRemote();
-  Array.from(list || []).forEach(file => {
-    const rd = new FileReader();
-    rd.onload = e => {
-      try{
-        const wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const parsed = parseSheet(XLSX.utils.sheet_to_json(ws, {header:1, defval:""}), file.name);
-        if(!parsed.length){ toast("⚠️ " + file.name + ": không tìm thấy dòng dữ liệu"); return; }
-        files.push({ name: file.name, rows: parsed });
-        combine(true);
-        toast("✅ " + file.name + " · " + parsed.length + " KH — nối tiếp, tổng " + rows.length + " khách hàng");
-      }catch(err){ toast("❌ " + file.name + ": " + err.message); }
-    };
-    rd.readAsArrayBuffer(file);
-  });
+/* Excel phải ghi Firebase ngay khi upload; transaction giúp nhiều máy upload
+   nối tiếp nhau mà không ghi đè dữ liệu của máy khác. */
+let excelQueue = Promise.resolve();
+const failedUploads = [];
+function setUploadMessage(message, failed=false){
+  $("uploadSyncState").textContent=message;
+  $("uploadSyncState").style.color=failed ? "#c0392b" : "#0a5f65";
+  $("uploadRetry").style.display=failedUploads.length ? "inline-flex" : "none";
 }
+function excelRowsFromSnapshot(v){
+  return Array.isArray(v) ? v.filter(Boolean) : (v && typeof v==="object" ? Object.values(v).filter(Boolean) : []);
+}
+function readFiles(list){
+  for(const file of Array.from(list||[])){
+    excelQueue = excelQueue.then(()=>saveUploadedExcel(file)).catch(e=>{
+      console.error("Excel queue",e);
+      setUploadMessage("❌ Không thể xử lý Excel: "+e.message,true);
+    });
+  }
+}
+async function saveUploadedExcel(file){
+  if(!db){ failedUploads.push(file); setUploadMessage("❌ Firebase chưa khởi tạo. File chưa được lưu; vui lòng thử lại.",true); return; }
+  setUploadMessage("⏳ Đang đọc và đồng bộ: "+file.name);
+  let parsed;
+  try{
+    const buffer=await file.arrayBuffer();
+    const wb=XLSX.read(new Uint8Array(buffer),{type:"array"});
+    parsed=parseSheet(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:""}),file.name);
+    if(!parsed.length) throw new Error("Không tìm thấy khách hàng hợp lệ");
+  }catch(err){setUploadMessage("❌ "+file.name+": "+err.message,true);return;}
+  try{
+    const result=await db.ref(FB_PATH+"/data").transaction(current=>{
+      return excelRowsFromSnapshot(current).concat(parsed);
+    },undefined,false);
+    if(!result.committed) throw new Error("Firebase từ chối lưu dữ liệu");
+    // Không chỉ lưu tên file: từng dòng có trường f để mở máy khác tái dựng lại các file.
+    const total=excelRowsFromSnapshot(result.snapshot.val()).length;
+    remoteHasData=true;
+    setUploadMessage("✅ ĐÃ LƯU FIREBASE: "+file.name+" ("+parsed.length+" KH) · Tổng "+total+" KH. Mở máy khác sẽ tự đồng bộ.");
+    toast("✅ Upload Excel đã lưu Firebase: "+parsed.length+" KH");
+  }catch(err){
+    failedUploads.push(file);
+    setUploadMessage("❌ CHƯA LƯU Firebase: "+file.name+" — "+err.message+". Bấm thử lại; tránh upload lại thủ công.",true);
+  }
+}
+$("uploadRetry").addEventListener("click",()=>{
+  const list=failedUploads.splice(0);
+  $("uploadRetry").style.display="none";
+  readFiles(list);
+});
 
 /* ---------- Nhận diện cột THÔNG MINH & LINH HOẠT ----------
    Đích: Tên khách hàng · Đại diện Pháp luật · Điện thoại · Địa chỉ.
@@ -815,7 +864,7 @@ function phoneGroup(dt){
 }
 function rowStatus(r){
   const st = ktStatus(ktMap[r.id]);
-  if(st==="ok"||st==="tuchoi") return st;
+  if(st==="ok"||st==="tuchoi"||st==="giaodich") return st;
   return ktMap[r.id] ? "kt" : "none";
 }
 /* Cập nhật các option khu vực & đầu số theo dữ liệu hiện có */
@@ -930,9 +979,10 @@ function renderTable(){
   tb.innerHTML = pendHtml + view.map(({r,idx})=>{
     const i = idx;
     const v = ktMap[r.id], st = ktStatus(v), nv = ktName(v), sel = selSet.has(r.id);
-    const rowCls = st==="ok" ? "ok" : st==="tuchoi" ? "tc" : (v ? "kt" : "");
+    const rowCls = st==="giaodich" ? "gd" : st==="ok" ? "ok" : st==="tuchoi" ? "tc" : (v ? "kt" : "");
     let ktCell;
-    if(st==="ok")          ktCell = '<span class="badge-ok">✔ KẾT NỐI ĐƯỢC</span><span class="del-flag">🗑 SẴN SÀNG XOÁ KHỎI DANH SÁCH CHẠY</span>';
+    if(st==="giaodich") ktCell = '<span class="badge-kt" style="background:#16865b">💰 KẾT NỐI GIAO DỊCH</span>';
+    else if(st==="ok")          ktCell = '<span class="badge-ok">✔ KẾT NỐI ĐƯỢC</span><span class="del-flag">🗑 SẴN SÀNG XOÁ KHỎI DANH SÁCH CHẠY</span>';
     else if(st==="tuchoi") ktCell = '<span class="badge-tc">✕ TỪ CHỐI</span><span class="del-flag">🗑 SẴN SÀNG XOÁ</span>';
     else if(v)             ktCell = '<span class="badge-kt">✔ KHAI THÁC</span>';
     else                   ktCell = '<span style="color:#b3c2c8">—</span>';
@@ -952,10 +1002,12 @@ function renderTable(){
   const ktCount = rows.filter(r=>ktMap[r.id] && !ktStatus(ktMap[r.id])).length;
   const okCount = rows.filter(r=>ktStatus(ktMap[r.id])==="ok").length;
   const tcCount = rows.filter(r=>ktStatus(ktMap[r.id])==="tuchoi").length;
+  const gdCount = rows.filter(r=>ktStatus(ktMap[r.id])==="giaodich").length;
   $("meta").innerHTML = "Tổng <b>"+rows.length+"</b> khách hàng"
     + (files.length ? " từ <b>"+files.length+"</b> file (chạy nối tiếp theo thứ tự)" : "")
     + " · Đang khai thác: <b style='color:var(--amber)'>"+ktCount+"</b>"
     + " · Kết nối được: <b style='color:var(--red)'>"+okCount+"</b>"
+    + " · Giao dịch: <b style='color:var(--green)'>"+gdCount+"</b>"
     + " · Từ chối (sẵn sàng xoá): <b style='color:#6e7a81'>"+tcCount+"</b>"
     + (pending.length ? ' · <b style="color:var(--green)">'+pending.length+' hàng mới chưa lưu</b>' : "");
   updateFilterInfo(view.length);
@@ -1068,6 +1120,30 @@ $("btnClear").addEventListener("click", async () => {
   }
 });
 
+/* Hoạt động lấy từ trạng thái được mọi máy lưu tại /khaithac.
+   Không phụ thuộc browser admin đang mở lúc nhân viên thao tác. */
+function renderLiveActivity(){
+  const records=Object.keys(ktMap).map(id=>{
+    const v=ktMap[id], r=rows.find(x=>x.id===id);
+    const status=ktStatus(v)||"kt";
+    return {id,v,r,status,at:Number((v&&typeof v==="object"&&(v.statusAt||v.at))||0)};
+  }).sort((a,b)=>b.at-a.at);
+  const count=st=>records.filter(x=>x.status===st).length;
+  $("liveKhaiThac").textContent="🟡 Đang khai thác: "+count("kt");
+  $("liveKetNoi").textContent="🔴 Kết nối được: "+count("ok");
+  $("liveGiaoDich").textContent="🟢 Kết nối giao dịch: "+count("giaodich");
+  const fl=$("activityFilter").value;
+  const view=records.filter(x=>!fl||x.status===fl);
+  $("activityRows").innerHTML=view.length ? view.map(x=>{
+    const title=x.r?.ten||"Mã KH: "+x.id;
+    const label={ok:"🔴 KẾT NỐI ĐƯỢC",giaodich:"🟢 KẾT NỐI GIAO DỊCH",kt:"🟡 ĐANG KHAI THÁC",tuchoi:"⚫ TỪ CHỐI"}[x.status]||esc(x.status);
+    const when=x.at?new Date(x.at).toLocaleString("vi-VN"):"Chưa ghi nhận thời gian";
+    return '<div style="padding:11px 6px;border-bottom:1px solid #e7eff1;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">'+
+      '<div><strong>'+esc(title)+'</strong><div style="font-size:12px;color:#51646f;margin-top:4px">👤 '+esc(ktName(x.v)||"Chưa nhập tên NV")+' · ☎ '+esc(x.r?.dienthoai||"—")+'</div></div>'+
+      '<div style="text-align:right;font-size:12px"><strong>'+label+'</strong><div style="color:#51646f;margin-top:4px">'+esc(when)+'</div></div></div>';
+  }).join("") : '<div class="empty">Chưa có hoạt động phù hợp trên Firebase.</div>';
+}
+$("activityFilter").addEventListener("change",renderLiveActivity);
 /* ---------- Lắng nghe Firebase (đồng bộ mọi máy, kể cả admin mở lại sau) ---------- */
 if(db){
   db.ref(FB_PATH + "/data").on("value", s => {
@@ -1082,12 +1158,15 @@ if(db){
     dataRev++;
     renderFileList();
     renderTable();
+    renderLiveActivity();
     if(ctrl.running) tickerBuild();      // xoá/thêm file lúc đang chạy → dựng lại ngay
   });
   let prevConnected = new Set();
+  let prevGiaoDich = new Set();
   let prevTuChoi = new Set();          // ID đã "Từ chối" ở lần cập nhật trước
   db.ref(FB_PATH + "/khaithac").on("value", s => {
     ktMap = s.val() || {};
+    renderLiveActivity();
     /* KH bị "Từ chối" → TỰ ĐỘNG TÍCH CHỌN trên bảng để sẵn sàng xoá;
        hoàn tác / đổi trạng thái → tự bỏ chọn */
     const nowTuChoi = new Set(Object.keys(ktMap).filter(id => ktStatus(ktMap[id]) === "tuchoi"));
@@ -1100,9 +1179,13 @@ if(db){
     let newConnected = 0;
     nowConnected.forEach(id => { if(!prevConnected.has(id)){ selSet.add(id); newConnected++; } });
     prevConnected = nowConnected;
+    const nowGiaoDich = new Set(Object.keys(ktMap).filter(id => ktStatus(ktMap[id]) === "giaodich"));
+    const newGiaoDich = [...nowGiaoDich].filter(id=>!prevGiaoDich.has(id)).length;
+    prevGiaoDich = nowGiaoDich;
     renderTable();
     tickerRestyle();
-    if(newConnected) toast("✔ " + newConnected + " khách hàng KẾT NỐI ĐƯỢC — đã tích chọn; kiểm tra và bấm 🗑 Xoá dòng đã chọn để ngừng chạy");
+    if(newGiaoDich) toast("💰 Có " + newGiaoDich + " khách hàng vừa được xác nhận KẾT NỐI GIAO DỊCH — xem bảng LIVE");
+    else if(newConnected) toast("✔ " + newConnected + " khách hàng KẾT NỐI ĐƯỢC — đã tích chọn; kiểm tra và bấm 🗑 Xoá dòng đã chọn để ngừng chạy");
     else if(newlyFlagged) toast("✕ " + newlyFlagged + " khách hàng bị TỪ CHỐI — đã tự tích chọn, bấm 🗑 Xoá dòng đã chọn để loại khỏi danh sách");
   });
   db.ref(FB_PATH + "/control").on("value", s => {
@@ -1300,6 +1383,7 @@ tkPop1I.addEventListener("keydown", e => {
   if(e.key === "Escape"){ e.preventDefault(); tkClosePop(); }
 });
 $("tkPop2OK").addEventListener("click", ()=> tkSetStatus("ok"));
+$("tkPop2GD").addEventListener("click", ()=> tkSetStatus("giaodich"));
 $("tkPop2TC").addEventListener("click", ()=> tkSetStatus("tuchoi"));
 $("tkPop2UN").addEventListener("click", ()=>{
   if(db && tkPopTargetId != null){
