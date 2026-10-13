@@ -1,0 +1,1423 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IDECO · Quản lý Ticker Khách Hàng</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<style>
+  :root{
+    --ink:#15252e; --ink2:#51646f; --line:#dbe4e9;
+    --bg:#eef3f5; --card:#ffffff;
+    --teal:#0e7d84; --teal-d:#0a5f65; --teal-l:#e3f2f3;
+    --amber:#e8a020; --red:#c0392b; --green:#1e8e5a;
+    --mono:'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;padding-bottom:140px}
+
+  header{background:linear-gradient(120deg,#0a5f65,#0e7d84 60%,#12969e);color:#fff;padding:18px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header .logo{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:22px;flex:none}
+  header h1{font-size:18px;font-weight:700;letter-spacing:.3px}
+  header p{font-size:12.5px;opacity:.85;margin-top:2px}
+  .status-pill{margin-left:auto;display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.22);padding:7px 14px;border-radius:999px;font-size:12.5px;font-weight:600}
+  .dot{width:9px;height:9px;border-radius:50%;background:#9aa9ad;flex:none}
+  .dot.on{background:#4ade80;box-shadow:0 0 0 4px rgba(74,222,128,.25);animation:pulse 1.4s infinite}
+  @keyframes pulse{50%{box-shadow:0 0 0 7px rgba(74,222,128,.08)}}
+
+  main{max-width:1100px;margin:22px auto;padding:0 16px;display:flex;flex-direction:column;gap:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 2px 10px rgba(21,60,70,.05)}
+  .card-h{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .card-h .num{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--teal);background:var(--teal-l);border-radius:6px;padding:3px 8px}
+  .card-h h2{font-size:15px;font-weight:700}
+  .card-h .hint{font-size:12px;color:var(--ink2);margin-left:auto}
+  .card-b{padding:18px}
+
+  .drop{border:2px dashed #b7ccd2;border-radius:12px;padding:30px 18px;text-align:center;cursor:pointer;transition:.2s;background:#fbfdfd}
+  .drop:hover,.drop.over{border-color:var(--teal);background:var(--teal-l)}
+  .drop .ic{font-size:32px}
+  .drop b{display:block;margin-top:8px;font-size:14.5px}
+  .drop span{font-size:12.5px;color:var(--ink2)}
+  .file-list{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+  .f-chip{display:inline-flex;align-items:center;gap:9px;background:var(--teal-l);border:1px solid #bfe0e2;border-radius:10px;padding:8px 10px 8px 12px;font-size:13px;font-weight:600;color:var(--teal-d);max-width:100%}
+  .f-chip .f-ord{background:var(--teal);color:#fff;font-family:var(--mono);font-size:11px;font-weight:700;border-radius:6px;padding:2px 7px;flex:none}
+  .f-chip .f-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
+  .f-chip .f-count{font-family:var(--mono);font-size:11.5px;color:var(--ink2);font-weight:700;flex:none}
+  .f-chip .f-del{border:none;background:#fff;color:var(--red);width:24px;height:24px;border-radius:7px;cursor:pointer;font-size:13px;line-height:1;padding:0;flex:none;border:1px solid #f0cdc8;font-family:inherit}
+  .f-chip .f-del:hover{background:#fdecea}
+  .f-remote{font-size:12.5px;color:var(--ink2);background:#f4f8f9;border:1px dashed var(--line);border-radius:10px;padding:9px 12px}
+  .f-badge{display:inline-block;background:#eef4f6;border:1px solid var(--line);color:var(--ink2);font-family:var(--mono);font-size:10.5px;font-weight:700;border-radius:6px;padding:1px 6px}
+
+  /* Toolbar bảng + chọn dòng + thêm thủ công */
+  .tbl-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .tbl-toolbar button{padding:9px 14px;font-size:13px;border-radius:9px}
+  .btn-add{background:var(--teal-l);border:1px solid #bfe0e2;color:var(--teal-d)}
+  .btn-add:hover{background:#d3ecee}
+  .btn-save{background:var(--green);color:#fff;box-shadow:0 3px 10px rgba(30,142,90,.3)}
+  .btn-save:not(:disabled):hover{background:#177449}
+  .btn-delsel{background:#fdecea;border:1px solid #f5c6c0;color:var(--red)}
+  .btn-delsel:not(:disabled):hover{background:#fadbd7}
+  .tb-hint{font-size:12px;color:var(--ink2);margin-left:auto}
+  /* ---- Thanh tìm kiếm & lọc ---- */
+  .filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:12px;background:#f4fafb;border:1px solid #dcebed;border-radius:11px}
+  .filter-bar .fsearch{flex:1 1 260px;min-width:220px;position:relative}
+  .filter-bar .fsearch input{width:100%;padding:10px 34px 10px 34px;border:1.5px solid #cfe3e5;border-radius:9px;font-size:13.5px;font-family:inherit;background:#fff}
+  .filter-bar .fsearch input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(45,166,178,.15)}
+  .filter-bar .fsearch .ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--ink2);pointer-events:none}
+  .filter-bar .fsearch .clr{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:#e3eff0;color:var(--ink2);width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;padding:0;display:none}
+  .filter-bar .fsearch .clr.show{display:block}
+  .filter-bar select{padding:10px 12px;border:1.5px solid #cfe3e5;border-radius:9px;font-size:13px;font-family:inherit;background:#fff;color:var(--ink);cursor:pointer;max-width:220px}
+  .filter-bar select:focus{outline:none;border-color:var(--teal)}
+  .filter-bar .fclear{padding:9px 13px;border:1px solid #e0d3b8;background:#fdf6e6;color:#8a6d1e;border-radius:9px;font-size:12.5px;cursor:pointer;font-family:inherit}
+  .filter-bar .fclear:hover{background:#f9edcf}
+  .filter-info{font-size:12.5px;color:var(--teal-d);font-weight:700;margin-left:auto;white-space:nowrap}
+  /* ---- Sửa inline ô dữ liệu ---- */
+  td.editable{cursor:text;position:relative}
+  td.editable:hover{background:#eefaf0;box-shadow:inset 0 0 0 1.5px #b7e2c4}
+  td.editable .edit-hint{opacity:0;position:absolute;right:5px;top:3px;font-size:9.5px;color:var(--teal);transition:.15s}
+  td.editable:hover .edit-hint{opacity:.8}
+  td.editing{background:#fff !important;box-shadow:inset 0 0 0 2px var(--green)}
+  td.editing input{width:100%;padding:6px 8px;border:none;font-size:13.5px;font-family:inherit;background:transparent;color:var(--ink)}
+  td.editing input:focus{outline:none}
+  tr.dim{opacity:.32}
+  mark.hl{background:#ffe9a8;color:inherit;border-radius:3px;padding:0 1px}
+  .cbx{width:17px;height:17px;accent-color:var(--teal);cursor:pointer;vertical-align:middle}
+  td.sel-cell{text-align:center}
+  tr.selected{background:#e8f4f5 !important}
+  tr.new-row{background:#f2fbf6}
+  tr.new-row td{padding:6px 8px}
+  tr.new-row input{width:100%;padding:8px 10px;border:1.5px solid #bfdfcc;border-radius:8px;font-size:13.5px;font-family:inherit;background:#fff}
+  tr.new-row input:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(30,142,90,.13)}
+  tr.new-row .new-tag{font-family:var(--mono);font-size:10.5px;font-weight:800;color:var(--green);background:#dff3e8;border-radius:6px;padding:2px 7px;white-space:nowrap}
+  tr.new-row .row-del{border:1px solid #f0cdc8;background:#fff;color:var(--red);width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:13px;line-height:1;padding:0;font-family:inherit}
+  tr.new-row .row-del:hover{background:#fdecea}
+
+  .tbl-wrap{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  thead th{position:sticky;top:0;background:#f2f7f8;color:var(--ink2);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);z-index:2}
+  tbody td{padding:9px 12px;border-bottom:1px solid #edf2f4;vertical-align:top}
+  tbody tr:hover{background:#f6fafb}
+  tbody tr.kt{background:#fdf6e6}
+  tbody tr.ok{background:#fdeceb}
+  tbody tr.tc{background:#eef1f3;color:#7a8790}
+  tbody tr.tc td b{text-decoration:line-through;text-decoration-thickness:2px;color:#8b979e}
+  td.phone{font-family:var(--mono);font-size:13px;white-space:nowrap;color:var(--teal-d);font-weight:600}
+  td.stt{font-family:var(--mono);color:#8ba0a8;font-size:12px}
+  .badge-kt{display:inline-block;background:var(--amber);color:#fff;font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 8px;letter-spacing:.04em}
+  .badge-ok{display:inline-block;background:var(--red);color:#fff;font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 8px;letter-spacing:.04em}
+  .badge-tc{display:inline-block;background:#6e7a81;color:#fff;font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 8px;letter-spacing:.04em}
+  .badge-nv{display:block;font-size:11px;color:var(--ink2);margin-top:3px;font-weight:600}
+  .del-flag{display:inline-block;background:#fdecea;border:1px solid #f5c6c0;color:var(--red);font-size:10px;font-weight:800;border-radius:6px;padding:1px 6px;margin-top:3px;letter-spacing:.03em}
+  .empty{padding:26px;text-align:center;color:var(--ink2);font-size:13.5px}
+  .meta{margin-top:10px;font-size:12.5px;color:var(--ink2)}
+  .meta b{color:var(--teal-d)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .field label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+  .field input[type=text]{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:14px;font-family:inherit}
+  .field input[type=text]:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,125,132,.14)}
+  .field input[type=color]{width:100%;height:40px;border:1px solid var(--line);border-radius:9px;padding:3px;cursor:pointer;background:#fff}
+  .range-row{display:flex;align-items:center;gap:10px}
+  .range-row input[type=range]{flex:1;accent-color:var(--teal)}
+  .range-val{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--teal-d);min-width:74px;text-align:right}
+
+  .ctrl-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  button{border:none;border-radius:10px;padding:12px 22px;font-size:14.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-family:inherit;transition:.15s}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .btn-run{background:var(--teal);color:#fff;box-shadow:0 4px 12px rgba(14,125,132,.35)}
+  .btn-run:not(:disabled):hover{background:var(--teal-d);transform:translateY(-1px)}
+  .btn-stop{background:#fdecea;color:var(--red);border:1px solid #f5c6c0}
+  .btn-stop:not(:disabled):hover{background:#fadbd7}
+  .btn-ghost{background:#fff;border:1px solid var(--line);color:var(--ink2);padding:12px 16px}
+  .btn-ghost:hover{background:#f4f8f9}
+  .btn-amber{background:#fdf3df;border:1px solid #f0d9a8;color:#9a6a0c;padding:12px 16px}
+  .btn-amber:hover{background:#fbeac6}
+
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:#fff;padding:11px 20px;border-radius:10px;font-size:13.5px;font-weight:600;opacity:0;transition:.3s;z-index:2147483600;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+  /* ===== Ticker live ngay trong app admin (đồng bộ Firebase như mọi máy khác) ===== */
+  #tkHost{position:fixed;left:0;right:0;bottom:0;z-index:2147483000;display:none}
+  #tkBar{position:relative;width:100%;overflow:hidden;box-shadow:0 -3px 14px rgba(0,0,0,.28)}
+  #tkTrack{position:absolute;top:50%;left:0;display:flex;gap:26px;align-items:center;white-space:nowrap;will-change:transform;transform:translate3d(100vw,-50%,0)}
+  .tk-chip{display:inline-flex;align-items:center;gap:10px;border:2px solid rgba(255,255,255,.55);border-radius:12px;padding:.32em .9em;background:rgba(255,255,255,.07);cursor:pointer;user-select:none;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+  .tk-chip:hover{background:rgba(255,255,255,.16)}
+  .tk-chip .tk-sep{opacity:.55;font-weight:400}
+  .tk-chip.kt{border-color:#ffb02e;background:rgba(255,176,46,.22);color:#ffd58a !important}
+  .tk-chip .tk-note{display:none;background:#ffb02e;color:#3a2600;font-size:.68em;font-weight:800;border-radius:7px;padding:.15em .55em;letter-spacing:.05em}
+  .tk-chip.kt .tk-note{display:inline-block}
+  .tk-chip.ok{border-color:#ff5a4e;background:rgba(230,55,45,.30);color:#ffb3ad !important}
+  .tk-chip.ok .tk-note{display:inline-block;background:#e6372d;color:#fff}
+  .tk-chip.tc{border-color:#8b979e;background:rgba(130,140,146,.30);color:#c3ccd1 !important;opacity:.82}
+  .tk-chip.tc .tk-note{display:inline-block;background:#6e7a81;color:#fff}
+  .tk-chip.tc b{text-decoration:line-through;text-decoration-thickness:2px}
+  /* Popup của ticker live trong admin (nhập tên NV + chọn trạng thái) */
+  #tkWrap{position:relative;width:100%;overflow:visible}
+  .tk-pop{position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%);display:none;background:#0e3a42;border:2px solid #ffb02e;border-radius:14px;padding:12px 14px;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:12;min-width:300px;max-width:92vw;font-family:'Segoe UI',system-ui,sans-serif}
+  .tk-pop.show{display:block}
+  .tk-pop::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:9px solid transparent;border-top-color:#ffb02e}
+  .tk-pop .tp-t{color:#ffd58a;font-size:13px;font-weight:800;margin:0 0 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;text-align:center}
+  .tk-pop .tp-row{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap}
+  .tk-pop input{flex:1;min-width:0;background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.35);border-radius:9px;color:#fff;font-size:15px;font-weight:600;padding:8px 10px;outline:none;font-family:inherit}
+  .tk-pop input:focus{border-color:#ffb02e;background:rgba(255,255,255,.16)}
+  .tk-pop input::placeholder{color:rgba(255,255,255,.45);font-weight:400}
+  .tk-pop .tp-row button{border:none;border-radius:9px;cursor:pointer;font-weight:800;font-size:14px;padding:9px 13px;line-height:1;font-family:inherit;transition:filter .15s;box-shadow:none}
+  .tk-pop .tp-row button:hover{filter:brightness(1.15);transform:none}
+  .tk-pop .tp-save{background:#ffb02e;color:#3a2600}
+  .tk-pop .tp-ok{background:#e6372d;color:#fff}
+  .tk-pop .tp-tc{background:#6e7a81;color:#fff}
+  .tk-pop .tp-undo{background:rgba(255,255,255,.14);color:#ffd58a;font-weight:700;font-size:12.5px}
+  .tk-pop .tp-x{background:rgba(255,255,255,.14);color:#fff}
+  @media(max-width:640px){ header h1{font-size:15.5px} .card-b{padding:14px} }
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN GATE ===== -->
+<div id="authGate" style="position:fixed;inset:0;z-index:99999;background:linear-gradient(135deg,#0a3d42,#0e7d84 55%,#12969e);display:flex;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.35);padding:34px 30px;width:100%;max-width:380px;text-align:center;font-family:'Segoe UI',system-ui,sans-serif;">
+    <div style="width:64px;height:64px;border-radius:16px;background:var(--teal-l);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 14px;">🔐</div>
+    <h2 style="font-size:17px;color:var(--ink);margin-bottom:4px;">IDECO · Quản lý Ticker</h2>
+    <p style="font-size:12.5px;color:var(--ink2);margin-bottom:20px;">Nhập mật khẩu để truy cập ứng dụng</p>
+    <div style="position:relative;">
+      <input id="authPass" type="password" placeholder="Mật khẩu…" autocomplete="off"
+        style="width:100%;padding:12px 44px 12px 14px;border:1.5px solid var(--line);border-radius:10px;font-size:14.5px;outline:none;transition:.2s;"
+        onfocus="this.style.borderColor='var(--teal)'" onblur="this.style.borderColor='var(--line)'">
+      <button id="authEye" type="button" title="Hiện/ẩn mật khẩu"
+        style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;font-size:17px;cursor:pointer;opacity:.6;">👁️</button>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin:14px 0 4px;font-size:13px;color:var(--ink2);cursor:pointer;user-select:none;">
+      <input id="authRemember" type="checkbox" checked style="width:16px;height:16px;accent-color:var(--teal);">
+      Ghi nhớ đăng nhập trên máy này
+    </label>
+    <div id="authErr" style="display:none;color:var(--red);font-size:12.5px;margin-top:8px;font-weight:600;">⚠️ Mật khẩu không đúng, vui lòng thử lại</div>
+    <button id="authBtn" style="width:100%;margin-top:16px;padding:12px;border:none;border-radius:10px;background:linear-gradient(120deg,var(--teal-d),var(--teal));color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;letter-spacing:.3px;">Đăng nhập</button>
+    <p style="font-size:11px;color:#9aa9ad;margin-top:16px;">© IDECO Pharma · Hệ thống nội bộ</p>
+  </div>
+</div>
+
+<header>
+  <div class="logo">📣</div>
+  <div>
+    <h1>QUẢN LÝ TICKER KHÁCH HÀNG · IDECO</h1>
+    <p>Upload Excel → phát chữ chạy realtime tới mọi máy · Double-click khung khách hàng để đánh dấu "Khai thác"</p>
+  </div>
+  <div class="status-pill"><span class="dot" id="fbDot"></span><span id="fbState">Đang kết nối…</span></div>
+  <button id="authLogout" title="Đăng xuất" style="background:rgba(0,0,0,.22);border:none;color:#fff;font-size:12.5px;font-weight:600;padding:7px 14px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:6px;">🚪 Đăng xuất</button>
+</header>
+
+<main>
+
+  <!-- B1 UPLOAD -->
+  <section class="card">
+    <div class="card-h"><span class="num">B1</span><h2>Tải file Excel danh sách khách hàng</h2></div>
+    <div class="card-b">
+      <div class="drop" id="drop">
+        <div class="ic">📄</div>
+        <b>Nhấn để chọn hoặc kéo thả MỘT hoặc NHIỀU file Excel vào đây</b>
+        <span>Hỗ trợ .xlsx / .xls / .csv — các cột: Người đại diện (tuỳ chọn), Tên khách hàng, Điện thoại, Địa chỉ · Các file sẽ nối tiếp nhau khi chạy</span>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple hidden>
+      <div class="file-list" id="fileList"></div>
+    </div>
+  </section>
+
+  <!-- B2 TABLE -->
+  <section class="card">
+    <div class="card-h"><span class="num">B2</span><h2>Bảng dữ liệu khách hàng</h2><span class="hint">Cột "Khai thác" cập nhật realtime khi nhân viên double-click trên ticker</span></div>
+    <div class="card-b">
+      <div class="filter-bar">
+        <div class="fsearch">
+          <span class="ico">🔍</span>
+          <input type="text" id="fSearch" placeholder="Tìm: tên công ty · người đại diện · SĐT · địa chỉ…" autocomplete="off">
+          <button class="clr" id="fSearchClr" title="Xoá tìm kiếm">✕</button>
+        </div>
+        <select id="fRegion" title="Lọc theo khu vực (tỉnh/thành trích từ địa chỉ)"><option value="">🗺 Tất cả khu vực</option></select>
+        <select id="fPhone" title="Lọc theo nhóm đầu số điện thoại"><option value="">📞 Tất cả đầu số</option></select>
+        <select id="fStatus" title="Lọc theo trạng thái khai thác">
+          <option value="">🏷 Tất cả trạng thái</option>
+          <option value="none">⚪ Chưa khai thác</option>
+          <option value="kt">🟡 Đang khai thác</option>
+          <option value="ok">🔴 Kết nối được</option>
+          <option value="tuchoi">⚫ Từ chối</option>
+        </select>
+        <button class="fclear" id="fClearAll" title="Xoá mọi bộ lọc">↺ Bỏ lọc</button>
+        <span class="filter-info" id="fInfo"></span>
+      </div>
+      <div id="connectedNotice" role="status" aria-live="polite" style="display:none;margin:12px 0;padding:12px 14px;border:1px solid #e6aaa6;border-radius:10px;background:#fff3f2;color:#942b25">
+        <strong id="connectedNoticeText"></strong>
+        <div style="margin:6px 0">Kiểm tra khách hàng và nhân viên bên dưới, rồi bấm 🗑 Xoá dòng đã chọn để ngừng chạy các khách này trên mọi máy.</div>
+        <button type="button" class="btn-add" id="btnSelectConnected">✔ Xem và chọn khách đã kết nối</button>
+      </div>
+      <div class="tbl-toolbar">
+        <button class="btn-add" id="btnAddRow">➕ Thêm thủ công</button>
+        <button class="btn-save" id="btnSaveFB" style="display:none">💾 Lưu Firebase (<span id="pendCount">0</span>)</button>
+        <button class="btn-delsel" id="btnDelSel" disabled>🗑 Xoá dòng đã chọn (<span id="selCount">0</span>)</button>
+        <span class="tb-hint" id="tbHint"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th style="width:50px">STT</th><th style="width:64px">File</th><th style="width:170px">Người đại diện</th><th>Tên khách hàng</th><th style="width:135px">Điện thoại</th><th>Địa chỉ</th><th style="width:110px">Khai thác</th><th style="width:60px;text-align:center"><input type="checkbox" id="selAll" class="cbx" title="Chọn tất cả / bỏ chọn"></th></tr></thead>
+          <tbody id="tbody"><tr><td colspan="8"><div class="empty">Chưa có dữ liệu — hãy tải file Excel ở Bước 1 (hoặc dữ liệu đang phát sẽ tự hiện từ Firebase).</div></td></tr></tbody>
+        </table>
+      </div>
+      <div class="meta" id="meta"></div>
+    </div>
+  </section>
+
+  <!-- B3 SETTINGS -->
+  <section class="card">
+    <div class="card-h"><span class="num">B3</span><h2>Cài đặt hiển thị</h2><span class="hint">Thay đổi áp dụng ngay cho ticker đang chạy trên mọi máy</span></div>
+    <div class="card-b">
+      <div class="grid">
+        <div class="field">
+          <label>Tốc độ chạy chữ</label>
+          <div class="range-row"><input type="range" id="speed" min="30" max="300" step="10" value="110"><span class="range-val" id="speedVal">110 px/s</span></div>
+        </div>
+        <div class="field">
+          <label>Kích thước chữ</label>
+          <div class="range-row"><input type="range" id="fontSize" min="12" max="36" step="1" value="17"><span class="range-val" id="fontSizeVal">17 px</span></div>
+        </div>
+        <div class="field">
+          <label>Độ cao so với đáy màn hình</label>
+          <div class="range-row"><input type="range" id="bottomOffset" min="0" max="400" step="5" value="0"><span class="range-val" id="bottomOffsetVal">0 px</span></div>
+        </div>
+        <div class="field"><label>Màu chữ chạy</label><input type="color" id="txtColor" value="#7dfbd4"></div>
+        <div class="field"><label>Màu nền thanh chạy</label><input type="color" id="bgColor" value="#0a2a30"></div>
+        <div class="field"><label>Tiêu đề đầu dòng (tuỳ chọn)</label><input type="text" id="prefix" placeholder="VD: 🔔 KHÁCH HÀNG CẦN LIÊN HỆ"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- B4 RUN -->
+  <section class="card">
+    <div class="card-h"><span class="num">B4</span><h2>Điều khiển phát</h2></div>
+    <div class="card-b">
+      <div class="ctrl-row">
+        <button class="btn-run" id="btnRun" disabled>▶ CHẠY TICKER</button>
+        <button class="btn-stop" id="btnStop" disabled>⏹ DỪNG</button>
+        <button class="btn-amber" id="btnResetKT">↺ Xoá đánh dấu Khai thác</button>
+        <button class="btn-ghost" id="btnClear">🗑 Xoá dữ liệu</button>
+      </div>
+      <div class="ctrl-row" style="margin-top:12px;padding-top:12px;border-top:1px dashed #d7e6e8">
+        <span style="font-size:13px;font-weight:700;color:var(--teal-d)">📡 Phát riêng theo khu vực:</span>
+        <select id="bcRegion" style="padding:9px 12px;border:1.5px solid #cfe3e5;border-radius:9px;font-size:13px;font-family:inherit;background:#fff;cursor:pointer;max-width:230px"><option value="">🌐 Tất cả khu vực (mặc định)</option></select>
+        <button class="btn-run" id="btnBcRegion" style="background:#2da6b2">📡 Phát khu vực này</button>
+        <span class="tb-hint" id="bcInfo" style="margin-left:0"></span>
+      </div>
+      <div class="meta" id="runMeta"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Ticker live trong admin (đồng bộ y hệt các máy nhúng script) -->
+<div id="tkHost"><div id="tkWrap">
+  <!-- Popup 1: nhập tên nhân viên (khung chưa khai thác) -->
+  <div class="tk-pop" id="tkPop1">
+    <div class="tp-t" id="tkPop1T"></div>
+    <div class="tp-row">
+      <input type="text" id="tkPop1I" maxlength="40" placeholder="Tên của bạn (VD: Ms Hương)">
+      <button class="tp-save" id="tkPop1OK">✔ Lưu</button>
+      <button class="tp-x" id="tkPop1NO">✕</button>
+    </div>
+  </div>
+  <!-- Popup 2: chọn kết quả liên hệ (khung đã khai thác) -->
+  <div class="tk-pop" id="tkPop2">
+    <div class="tp-t" id="tkPop2T"></div>
+    <div class="tp-row">
+      <button class="tp-ok" id="tkPop2OK">✔ Kết nối được</button>
+      <button class="tp-tc" id="tkPop2TC">✕ Từ chối</button>
+      <button class="tp-undo" id="tkPop2UN">↺ Hoàn tác</button>
+      <button class="tp-x" id="tkPop2X">Đóng</button>
+    </div>
+  </div>
+  <div id="tkBar"><div id="tkTrack"></div></div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================== FIREBASE CONFIG (dự án dulieu2026) ==================
+   Nếu báo lỗi kết nối/permission_denied: kiểm tra lại databaseURL đúng
+   với Realtime Database trong Firebase Console (có thể là
+   https://dulieu2026-3fdb7-default-rtdb.firebaseio.com ).            */
+const FB_CONFIG = {
+  apiKey: "AIzaSyAXH6BO5LHhXAlf9aSFZAa9zOxUz-yjeI0",
+  authDomain: "dulieu2026-3fdb7.firebaseapp.com",
+  databaseURL: "https://dulieu2026-3fdb7-default-rtdb.firebaseio.com",
+  projectId: "dulieu2026-3fdb7",
+  storageBucket: "dulieu2026-3fdb7.firebasestorage.app",
+  messagingSenderId: "600918342462",
+  appId: "1:600918342462:web:fed4c361264a0cc0390a6f"
+};
+const FB_PATH = "tickerKhachHang";
+
+/* ---------- Init Firebase (named app) ---------- */
+let db = null;
+try {
+  const app = firebase.apps.find(a => a.name === "tickerKH-admin")
+           || firebase.initializeApp(FB_CONFIG, "tickerKH-admin");
+  db = app.database();
+  db.ref(".info/connected").on("value", s => {
+    const on = s.val() === true;
+    document.getElementById("fbDot").classList.toggle("on", on);
+    document.getElementById("fbState").textContent = on ? "Firebase đã kết nối" : "Mất kết nối";
+  });
+} catch(e){
+  document.getElementById("fbState").textContent = "Lỗi cấu hình Firebase";
+  console.error(e);
+}
+
+/* ---------- Helpers ---------- */
+const $ = id => document.getElementById(id);
+const norm = s => String(s ?? "").normalize("NFC").trim();
+const flat = s => norm(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d");
+const esc  = s => String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._x); t._x=setTimeout(()=>t.classList.remove("show"),2600); }
+
+/* Tên NV khai thác (hỗ trợ dữ liệu cũ: true / chuỗi tên) */
+function ktName(v){
+  if(!v || v === true) return "";
+  if(typeof v === "string") return v;
+  if(typeof v === "object" && v.name) return String(v.name);
+  return "";
+}
+/* Trạng thái: "" = khai thác (vàng), "ok" = kết nối được (đỏ), "tuchoi" = từ chối (xám, sẵn sàng xoá) */
+function ktStatus(v){
+  return (v && typeof v === "object" && v.status) ? String(v.status) : "";
+}
+
+let files = [];       // [{name, rows:[{id,daidien,ten,dienthoai,diachi,f}]}] — dữ liệu local theo từng file
+let rows = [];        // dữ liệu gộp (nối tiếp các file) hoặc từ Firebase
+let ktMap = {};       // {rowId: true} — trạng thái "Khai thác" (khoá theo ID ổn định)
+let ctrl = {};        // control từ Firebase
+let dirtyLocal = false; // vừa thay đổi file local chưa phát
+let dataRev = 0;      // tăng mỗi lần dữ liệu đổi → ép dựng lại ticker
+let selSet = new Set();   // ID các dòng đang được chọn
+let pending = [];         // hàng thêm thủ công chưa lưu [{daidien,ten,dienthoai,diachi}]
+let remoteHasData = false;// Firebase hiện có dữ liệu hay không
+const MANUAL_FILE = "Thêm thủ công";
+let idSeq = 0;
+const newId = () => "r" + Date.now().toString(36) + "_" + (idSeq++);
+
+/* ---------- Upload & parse Excel (nhiều file) ---------- */
+const drop = $("drop"), fi = $("fileInput");
+drop.addEventListener("click", () => fi.click());
+["dragover","dragenter"].forEach(ev => drop.addEventListener(ev, e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop", e => readFiles(e.dataTransfer.files));
+fi.addEventListener("change", () => { readFiles(fi.files); fi.value=""; });
+
+function readFiles(list){
+  /* ★ AN TOÀN DỮ LIỆU: trước khi thêm file mới, biến dữ liệu cũ đang
+     phát (từ Firebase, chưa có trong files[]) thành các "file thật" để
+     NỐI TIẾP — không bao giờ ghi đè/mất dữ liệu + trạng thái cũ. */
+  materializeRemote();
+  Array.from(list || []).forEach(file => {
+    const rd = new FileReader();
+    rd.onload = e => {
+      try{
+        const wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const parsed = parseSheet(XLSX.utils.sheet_to_json(ws, {header:1, defval:""}), file.name);
+        if(!parsed.length){ toast("⚠️ " + file.name + ": không tìm thấy dòng dữ liệu"); return; }
+        files.push({ name: file.name, rows: parsed });
+        combine(true);
+        toast("✅ " + file.name + " · " + parsed.length + " KH — nối tiếp, tổng " + rows.length + " khách hàng");
+      }catch(err){ toast("❌ " + file.name + ": " + err.message); }
+    };
+    rd.readAsArrayBuffer(file);
+  });
+}
+
+/* ---------- Nhận diện cột THÔNG MINH & LINH HOẠT ----------
+   Đích: Tên khách hàng · Đại diện Pháp luật · Điện thoại · Địa chỉ.
+   Chấm điểm ĐỘC LẬP từng trường theo tiêu đề (mỗi cột được xét cho
+   cả 4 trường, rồi ghép cặp tối ưu), hỗ trợ mọi thứ tự cột. Không có
+   tiêu đề rõ ràng → suy luận theo NỘI DUNG. Cột nào không có → để TRỐNG. */
+
+/* mẫu nhận diện tiêu đề cho từng trường (điểm cao = chắc chắn hơn) */
+const HDR_RULES = {
+  dienthoai: [ [/(dien.?thoai|so.?dt|sdt|phone|mobile|hotline|zalo|lien.?he.?sdt)/,10],
+               [/(^dt$|\bdt\b|\bso\b.*\bdt\b)/,7] ],
+  diachi:    [ [/(dia.?chi|address|noi.?o|thuong.?tru|tru.?so|d\/c)/,10], [/(^dc$|\bdc\b)/,6] ],
+  daidien:   [ [/(dai.?dien.?phap.?luat|nguoi.?dai.?dien|dai.?dien|phap.?ly|phap.?luat)/,10],
+               [/(nguoi.?lien.?he|lien.?he|contact.?person|contact|rep(resentative)?)/,7],
+               [/(giam.?doc|chu.?ho|chu.?co.?so|nguoi.?phu.?trach)/,6] ],
+  ten:       [ [/(ten.?khach.?hang|ten.?kh|ten.?cong.?ty|ten.?doanh.?nghiep|ten.?co.?so|customer.?name)/,10],
+               [/(khach.?hang|customer|company|don.?vi|co.?so|doanh.?nghiep|cua.?hang|nha.?thuoc|hieu.?thuoc)/,8],
+               [/(^ten$|\bten\b|\bname\b|ho.?ten|ho.?va.?ten)/,6] ]
+};
+const looksPhone = v => { const s=String(v??"").replace(/[^\d]/g,""); return s.length>=8 && s.length<=13; };
+const looksAddr  = v => { const s=norm(v); return s.length>=12 && /\d/.test(s) && /[,\/]| (p|q|tp|tt|huyen|quan|phuong|xa|duong|so)\b/i.test(flat(s)); };
+
+function scoreHeaderRow(row){
+  const cells = row.map(flat);
+  let sc = 0;
+  cells.forEach(h => { for(const f in HDR_RULES) for(const [re,w] of HDR_RULES[f]) if(re.test(h)){ sc+=w; break; } });
+  return sc;
+}
+
+function parseSheet(arr, fileName){
+  if(!arr.length) return [];
+
+  /* 1) Tìm dòng tiêu đề = dòng trong 12 dòng đầu có tổng điểm khớp cao nhất.
+        Loại trừ dòng chứa dữ liệu thật: header hầu như không có SĐT/số dài. */
+  let hIdx = -1, bestScore = 0;
+  for(let i=0;i<Math.min(arr.length,12);i++){
+    const row = arr[i] || [];
+    if(row.some(c => looksPhone(c))) continue;    // có SĐT → là dòng dữ liệu, bỏ qua
+    const s = scoreHeaderRow(row);
+    if(s > bestScore){ bestScore = s; hIdx = i; }
+  }
+  const hasHeader = hIdx >= 0 && bestScore >= 6;
+  if(!hasHeader) hIdx = -1;                       // không có header → suy luận theo nội dung
+
+  /* 2) Gán cột theo tiêu đề — chấm điểm độc lập rồi ghép cặp tham lam
+        (mỗi cột chỉ dùng cho 1 trường, ưu tiên khớp điểm cao nhất) */
+  const col = { ten:-1, daidien:-1, dienthoai:-1, diachi:-1 };
+  if(hasHeader){
+    const header = arr[hIdx].map(flat);
+    const cand = [];                             // {field, j, score}
+    header.forEach((h,j) => {
+      if(!h) return;
+      for(const f in HDR_RULES){ let best=0; for(const [re,w] of HDR_RULES[f]) if(re.test(h)) best=Math.max(best,w);
+        if(best) cand.push({field:f, j, score:best}); }
+    });
+    cand.sort((a,b)=>b.score-a.score);
+    const usedCol = new Set();
+    cand.forEach(c => { if(col[c.field]<0 && !usedCol.has(c.j)){ col[c.field]=c.j; usedCol.add(c.j); } });
+  }
+
+  const body = arr.slice(hIdx + 1).filter(r => r.some(c => norm(c) !== ""));
+  const width = Math.max(...arr.map(r=>r.length), 0);
+
+  /* 3) Suy luận cột còn thiếu theo NỘI DUNG (quét toàn bảng) */
+  const filled = f => col[f] >= 0;
+  const usedCols = () => new Set(Object.values(col).filter(v=>v>=0));
+
+  if(!filled("dienthoai")){                       // cột nhiều ô giống SĐT nhất
+    let bj=-1, bhit=-1;
+    for(let j=0;j<width;j++){ if(usedCols().has(j)) continue;
+      let hit=0; body.forEach(r=>{ if(looksPhone(r[j])) hit++; });
+      if(hit>bhit && hit>=Math.max(1, body.length*0.3)){ bhit=hit; bj=j; } }
+    if(bj>=0) col.dienthoai=bj;
+  }
+  if(!filled("diachi")){                           // cột nhiều ô giống địa chỉ nhất
+    let bj=-1, bhit=-1;
+    for(let j=0;j<width;j++){ if(usedCols().has(j)) continue;
+      let hit=0; body.forEach(r=>{ if(looksAddr(r[j])) hit++; });
+      if(hit>bhit && hit>=Math.max(1, body.length*0.3)){ bhit=hit; bj=j; } }
+    if(bj>=0) col.diachi=bj;
+  }
+  if(!filled("ten")){                              // cột chữ đầu tiên chưa dùng, nhiều text nhất
+    let bj=-1, bhit=-1;
+    for(let j=0;j<width;j++){ if(usedCols().has(j)) continue;
+      let hit=0; body.forEach(r=>{ const s=norm(r[j]); if(s && !looksPhone(s) && isNaN(Number(s))) hit++; });
+      if(hit>bhit){ bhit=hit; bj=j; } }
+    if(bj>=0) col.ten=bj;
+  }
+  if(!filled("daidien")){                          // cột text còn lại chưa dùng
+    for(let j=0;j<width;j++){ if(usedCols().has(j)) continue;
+      let hit=0; body.forEach(r=>{ const s=norm(r[j]); if(s && !looksPhone(s) && isNaN(Number(s))) hit++; });
+      if(hit >= Math.max(1, body.length*0.3)){ col.daidien=j; break; } }
+  }
+
+  /* 4) Trích dữ liệu — cột không xác định để TRỐNG */
+  return body.map(r => ({
+    id: newId(),
+    f: norm(fileName),
+    daidien:   col.daidien   >= 0 ? norm(r[col.daidien])        : "",
+    ten:       col.ten       >= 0 ? norm(r[col.ten])            : "",
+    dienthoai: col.dienthoai >= 0 ? normPhone(r[col.dienthoai]) : "",
+    diachi:    col.diachi    >= 0 ? norm(r[col.diachi])         : ""
+  })).filter(r => r.ten || r.dienthoai || r.diachi || r.daidien);
+}
+
+/* Gộp các file theo thứ tự tải lên → chạy nối tiếp */
+function combine(markDirty){
+  rows = [];
+  files.forEach((f, fi) => f.rows.forEach(r => rows.push(Object.assign({}, r, {fi: fi}))));
+  if(markDirty) dirtyLocal = true;
+  dataRev++;
+  renderFileList();
+  renderTable();
+}
+
+function renderFileList(){
+  const el = $("fileList");
+  if(!files.length){
+    el.innerHTML = rows.length
+      ? '<div class="f-remote">📡 Đang hiển thị dữ liệu phát từ Firebase (máy khác upload). Tải file mới tại đây để thay thế.</div>'
+      : "";
+    return;
+  }
+  el.innerHTML = files.map((f,i)=>
+    '<span class="f-chip">'+
+      '<span class="f-ord">'+(i+1)+'</span>'+
+      '<span class="f-name" title="'+esc(f.name)+'">'+esc(f.name)+'</span>'+
+      '<span class="f-count">'+f.rows.length+' KH</span>'+
+      '<button class="f-del" data-i="'+i+'" title="Xoá file này">✕</button>'+
+    '</span>').join("");
+}
+
+/* Xoá từng file — nếu ticker đang chạy thì cập nhật ngay lên Firebase */
+$("fileList").addEventListener("click", async e => {
+  const btn = e.target.closest(".f-del");
+  if(!btn) return;
+  const i = +btn.dataset.i;
+  if(!confirm('Xoá file "'+files[i].name+'" ('+files[i].rows.length+' khách hàng) khỏi danh sách chạy?')) return;
+  const removedIds = files[i].rows.map(r=>r.id);
+  files.splice(i, 1);
+  combine(!ctrl.running && !remoteHasData);
+  if(db && (ctrl.running || remoteHasData)){
+    try{
+      await db.ref(FB_PATH + "/data").set(rows.length ? rows : null);
+      removedIds.forEach(id => { if(ktMap[id]) db.ref(FB_PATH + "/khaithac/" + id).remove(); });
+      if(ctrl.running && !rows.length) await db.ref(FB_PATH + "/control/running").set(false);
+      dirtyLocal = false; remoteHasData = rows.length > 0;
+      toast(rows.length ? "🗑 Đã xoá file — dữ liệu đồng bộ trên mọi máy" : "🗑 Hết dữ liệu — ticker đã dừng");
+    }catch(err){ toast("❌ " + err.message); }
+  } else {
+    toast("🗑 Đã xoá file khỏi danh sách");
+  }
+});
+
+function normPhone(v){
+  let s = norm(v).replace(/[^\d+]/g,"");
+  if(/^\d{9}$/.test(s)) s = "0"+s;
+  return s;
+}
+
+/* ================================================================
+   CHỌN DÒNG · XOÁ DÒNG ĐÃ CHỌN · THÊM THỦ CÔNG · LƯU FIREBASE
+================================================================ */
+
+/* Nếu dữ liệu đang là bản phát từ Firebase (chưa có file local),
+   chuyển nó thành 1 "file ảo" để mọi thao tác sửa/xoá đều nhất quán */
+function materializeRemote(){
+  if(files.length || !rows.length) return;
+  /* ★ Khôi phục CHÍNH XÁC từng file theo tên đã lưu ở mỗi dòng (r.f),
+     giữ đúng thứ tự xuất hiện → tên file không bị mất khi mở lại admin,
+     và mọi trạng thái khai thác/kết nối theo ID vẫn dính nguyên vẹn. */
+  const order = [], byName = {};
+  rows.forEach(r => {
+    const c = Object.assign({}, r); delete c.fi;
+    if(!c.id) c.id = newId();
+    const nm = c.f || "(dữ liệu đang phát)";
+    if(!byName[nm]){ byName[nm] = { name: nm, rows: [] }; order.push(nm); }
+    byName[nm].rows.push(c);
+  });
+  files = order.map(nm => byName[nm]);
+}
+
+function refreshSelUI(){
+  // dọn ID không còn tồn tại
+  const alive = new Set(rows.map(r=>r.id));
+  selSet.forEach(id => { if(!alive.has(id)) selSet.delete(id); });
+  $("selCount").textContent = selSet.size;
+  $("btnDelSel").disabled = !selSet.size;
+  /* checkbox "chọn tất cả" phản ánh riêng các dòng ĐANG HIỂN THỊ (theo bộ lọc) */
+  const visIds = getFilteredRows().map(({r})=>r.id);
+  const visSel = visIds.filter(id => selSet.has(id)).length;
+  const all = $("selAll");
+  all.checked = visIds.length > 0 && visSel === visIds.length;
+  all.indeterminate = visSel > 0 && visSel < visIds.length;
+  $("pendCount").textContent = pending.length;
+  $("btnSaveFB").style.display = pending.length ? "inline-flex" : "none";
+  $("tbHint").textContent = selSet.size
+    ? "Đã chọn " + selSet.size + " dòng" + (isFiltering() ? " (có thể ngoài bộ lọc hiện tại)" : "")
+    : (pending.length ? "Điền thông tin rồi bấm 💾 Lưu Firebase" : "");
+}
+
+/* Chọn tất cả / bỏ chọn (header) — chỉ tác động các dòng đang hiển thị theo bộ lọc */
+$("selAll").addEventListener("change", e => {
+  const visIds = getFilteredRows().map(({r})=>r.id);
+  if(e.target.checked) visIds.forEach(id => selSet.add(id));
+  else                 visIds.forEach(id => selSet.delete(id));
+  renderTable();
+});
+
+/* Chọn thủ công từng dòng + thao tác trên hàng thêm mới (event delegation) */
+$("tbody").addEventListener("change", e => {
+  const cb = e.target.closest(".row-sel");
+  if(cb){
+    cb.checked ? selSet.add(cb.dataset.id) : selSet.delete(cb.dataset.id);
+    cb.closest("tr").classList.toggle("selected", cb.checked);
+    refreshSelUI();
+  }
+});
+$("tbody").addEventListener("input", e => {
+  const inp = e.target.closest("tr.new-row input");
+  if(inp) pending[+inp.dataset.p][inp.dataset.k] = inp.value;   // không re-render để giữ focus gõ
+});
+$("tbody").addEventListener("click", e => {
+  const del = e.target.closest("[data-pdel]");
+  if(del){ pending.splice(+del.dataset.pdel, 1); renderTable(); return; }
+  /* ---- Sửa inline: click vào ô editable → mở input ---- */
+  const cell = e.target.closest("td.editable");
+  if(cell && !cell.classList.contains("editing")) openCellEdit(cell);
+});
+
+/* Mở ô sửa inline */
+function openCellEdit(cell){
+  if(editingCell) return;                     // mỗi lần chỉ sửa 1 ô
+  const id = cell.dataset.id, k = cell.dataset.k;
+  const r = rows.find(x => x.id === id);
+  if(!r) return;
+  editingCell = cell;
+  const cur = r[k] || "";
+  cell.classList.add("editing");
+  cell.innerHTML = '<input type="text" value="'+esc(cur)+'"'+(k==="dienthoai"?' inputmode="tel"':'')+'>';
+  const inp = cell.querySelector("input");
+  inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+  const commit = save => {
+    if(editingCell !== cell) return;
+    editingCell = null;
+    if(save){ const nv = k==="dienthoai" ? normPhone(inp.value) : norm(inp.value);
+              if(nv !== (r[k]||"")) { saveCellEdit(id, k, nv); return; } }
+    renderTable();                            // huỷ hoặc không đổi → vẽ lại như cũ
+  };
+  inp.addEventListener("keydown", ev => {
+    if(ev.key==="Enter"){ ev.preventDefault(); commit(true); }
+    else if(ev.key==="Escape"){ ev.preventDefault(); commit(false); }
+  });
+  inp.addEventListener("blur", () => commit(true));
+}
+
+/* Ghi giá trị đã sửa vào files[] (giữ ID/trạng thái) rồi đồng bộ Firebase */
+async function saveCellEdit(id, k, val){
+  materializeRemote();
+  let hit = false;
+  files.forEach(f => f.rows.forEach(row => { if(row.id === id){ row[k] = val; hit = true; } }));
+  if(!hit){ renderTable(); return; }
+  combine(false);
+  if(db && (ctrl.running || remoteHasData)){
+    try{
+      await db.ref(FB_PATH + "/data").set(rows);
+      dirtyLocal = false; remoteHasData = true;
+      if(ctrl.running) tickerBuild();
+      toast("✏️ Đã sửa & đồng bộ" + (ctrl.running ? " — ticker cập nhật ngay" : ""));
+    }catch(err){ toast("❌ Lỗi lưu: " + err.message); }
+  } else {
+    dirtyLocal = true;
+    toast("✏️ Đã sửa (bấm ▶ CHẠY hoặc dữ liệu sẽ đồng bộ khi phát)");
+  }
+}
+
+/* ➕ Thêm thủ công → xuất hiện hàng nhập mới ghim đầu bảng */
+$("btnAddRow").addEventListener("click", () => {
+  pending.push({daidien:"", ten:"", dienthoai:"", diachi:""});
+  renderTable();
+  const first = $("tbody").querySelector('tr.new-row input[data-k="daidien"]');
+  if(first) first.focus();
+});
+
+/* 💾 Lưu Firebase — hợp lệ hoá, gộp vào file ảo "Thêm thủ công", đẩy lên /data */
+$("btnSaveFB").addEventListener("click", async () => {
+  const valid = [], skipped = [];
+  pending.forEach(p => {
+    const r = { daidien: norm(p.daidien), ten: norm(p.ten), dienthoai: normPhone(p.dienthoai), diachi: norm(p.diachi) };
+    (r.ten || r.dienthoai) ? valid.push(r) : skipped.push(r);
+  });
+  if(!valid.length) return toast("⚠️ Cần ít nhất Tên khách hàng hoặc Điện thoại");
+  materializeRemote();
+  let mf = files.find(f => f.name === MANUAL_FILE);
+  if(!mf){ mf = { name: MANUAL_FILE, rows: [] }; files.push(mf); }
+  valid.forEach(r => mf.rows.push(Object.assign({ id: newId(), f: MANUAL_FILE }, r)));
+  pending = [];
+  combine(false);
+  if(db){
+    try{
+      await db.ref(FB_PATH + "/data").set(rows);
+      dirtyLocal = false; remoteHasData = true;
+      toast("💾 Đã lưu " + valid.length + " khách hàng lên Firebase" + (ctrl.running ? " — ticker cập nhật ngay" : " — bấm ▶ CHẠY để phát"));
+    }catch(err){ toast("❌ Lỗi lưu Firebase: " + err.message); }
+  } else toast("💾 Đã thêm " + valid.length + " KH (chưa kết nối Firebase)");
+  if(skipped.length) toast("⚠️ Bỏ qua " + skipped.length + " hàng trống");
+});
+
+/* 🗑 Xoá các dòng đã chọn (chọn tất cả hoặc thủ công) */
+$("btnDelSel").addEventListener("click", async () => {
+  if(!selSet.size) return;
+  if(!confirm("Xoá " + selSet.size + " dòng khách hàng đã chọn khỏi bảng chạy chữ?")) return;
+  /* ★ v6: cảnh báo nếu trong số dòng xoá có KH ĐÃ KẾT NỐI ĐƯỢC */
+  const okSel = [...selSet].filter(id => ktMap[id] && typeof ktMap[id]==="object" && ktMap[id].status==="ok");
+  if(okSel.length && !confirm("⚠️ Có " + okSel.length + " dòng là khách hàng ĐÃ KẾT NỐI ĐƯỢC.\nXoá sẽ mất cả đánh dấu kết nối. Vẫn tiếp tục?")) return;
+  const removed = [...selSet];
+  const removedSet = new Set(removed);
+  const remaining = rows.filter(r => !removedSet.has(r.id));
+  const sync = db && (ctrl.running || remoteHasData);
+  $("btnDelSel").disabled = true;
+  try{
+    if(sync){
+      const updates = {data: remaining.length ? remaining : null};
+      removed.forEach(id => { updates["khaithac/" + id] = null; });
+      if(ctrl.running && !remaining.length) updates["control/running"] = false;
+      await db.ref(FB_PATH).update(updates);
+    }
+    materializeRemote();
+    files.forEach(f => f.rows = f.rows.filter(r => !removedSet.has(r.id)));
+    files = files.filter(f => f.rows.length);
+    removed.forEach(id => { selSet.delete(id); delete ktMap[id]; });
+    combine(!sync);
+    if(sync) remoteHasData = rows.length > 0;
+    if(ctrl.running) tickerBuild();
+    toast("🗑 Đã xoá " + removed.length + " khách hàng khỏi danh sách chạy" + (sync ? " — đã đồng bộ trên mọi máy" : ""));
+  }catch(err){
+    toast("❌ Chưa xoá được: " + err.message + ". Vui lòng thử lại.");
+  }finally{
+    refreshSelUI();
+  }
+});
+
+/* ---------- Bảng dữ liệu ---------- */
+/* ================================================================
+   TÌM KIẾM · LỌC KHU VỰC · LỌC ĐẦU SỐ · LỌC TRẠNG THÁI
+================================================================ */
+let flt = { q:"", region:"", phone:"", status:"" };
+let editingCell = null, pendingRerender = false;
+
+/* Trích tỉnh/thành từ địa chỉ (phần cuối sau dấu phẩy, chuẩn hoá vài tên phổ biến) */
+const PROV_ALIAS = {
+  "tphcm":"TP.HCM","tp hcm":"TP.HCM","ho chi minh":"TP.HCM","hcm":"TP.HCM","sai gon":"TP.HCM","saigon":"TP.HCM",
+  "ha noi":"Hà Nội","hanoi":"Hà Nội","hn":"Hà Nội",
+  "da nang":"Đà Nẵng","dn":"Đà Nẵng"
+};
+const titleCaseVi = s => s.toLowerCase().split(/\s+/).map(w => w ? w[0].toUpperCase()+w.slice(1) : w).join(" ");
+function extractRegion(addr){
+  const s = norm(addr);
+  if(!s) return "";
+  const parts = s.split(",").map(x=>x.trim()).filter(Boolean);
+  // Lấy phần cuối; nếu phần cuối chỉ là "Qx"/"Px" (quận/phường) thì lùi về phần trước có tên tỉnh/thành
+  let tail = parts[parts.length-1] || s;
+  const isDistrictOnly = t => /^(q|p|quan|phuong)\.?\s*\d+[a-z]?$/i.test(flat(t));
+  if(isDistrictOnly(tail) && parts.length >= 2) tail = parts[parts.length-2];
+  tail = tail.replace(/^(tp\.?|thanh pho|tinh|t\.)\s*/i,"").trim();
+  const key = flat(tail);
+  for(const k in PROV_ALIAS){ if(key === k || key.includes(k)) return PROV_ALIAS[k]; }
+  return titleCaseVi(tail);
+}
+/* Nhóm đầu số điện thoại VN (di động: 03x/05x/07x/08x/09x; cố định: đầu 02x theo tỉnh) */
+function phoneGroup(dt){
+  const s = String(dt||"").replace(/[^\d]/g,"");
+  if(!s) return "";
+  if(/^0?(3[2-9])/.test(s)) return "03x (Viettel)";
+  if(/^0?(5[6-9])/.test(s)) return "05x (Vietnamobile)";
+  if(/^0?(7[0-9])/.test(s)) return "07x (Mobifone)";
+  if(/^0?(8[1-9])/.test(s)) return "08x (Vinaphone)";
+  if(/^0?(9[0-9])/.test(s)) return "09x (Viettel/Mobi/Vina)";
+  if(/^0?2\d/.test(s))      return "02x (Cố định)";
+  return "Khác";
+}
+function rowStatus(r){
+  const st = ktStatus(ktMap[r.id]);
+  if(st==="ok"||st==="tuchoi") return st;
+  return ktMap[r.id] ? "kt" : "none";
+}
+/* Cập nhật các option khu vực & đầu số theo dữ liệu hiện có */
+function rebuildFilterOptions(){
+  const regions = new Map(), phones = new Map();
+  rows.forEach(r=>{
+    const rg = extractRegion(r.diachi); if(rg) regions.set(rg,(regions.get(rg)||0)+1);
+    const pg = phoneGroup(r.dienthoai); if(pg) phones.set(pg,(phones.get(pg)||0)+1);
+  });
+  const fill = (sel, map, prefix) => {
+    const cur = sel.value;
+    const opts = [...map.entries()].sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0],'vi'));
+    sel.innerHTML = '<option value="">'+prefix+'</option>' +
+      opts.map(([k,c])=>'<option value="'+esc(k)+'">'+esc(k)+' ('+c+')</option>').join("");
+    if([...map.keys()].includes(cur)) sel.value = cur; else if(cur){ sel.value=""; }
+  };
+  fill($("fRegion"), regions, "🗺 Tất cả khu vực");
+  fill($("fPhone"),  phones,  "📞 Tất cả đầu số");
+  if($("bcRegion")) fill($("bcRegion"), regions, "🌐 Tất cả khu vực (mặc định)");
+}
+/* Trả về danh sách rows đã lọc + gắn chỉ số gốc để STT/định vị đúng */
+function getFilteredRows(){
+  const q = flat(flt.q);
+  return rows.map((r,idx)=>({r,idx})).filter(({r})=>{
+    if(flt.region && extractRegion(r.diachi) !== flt.region) return false;
+    if(flt.phone  && phoneGroup(r.dienthoai) !== flt.phone)  return false;
+    if(flt.status && rowStatus(r) !== flt.status)            return false;
+    if(q){
+      const hay = flat([r.ten, r.daidien, r.dienthoai, r.diachi, ktName(ktMap[r.id])].join(" "));
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function hlMark(text, q){
+  const s = String(text==null?"":text);
+  if(!q) return esc(s);
+  const fs = flat(s), fq = flat(q);
+  const at = fs.indexOf(fq);
+  if(at<0) return esc(s);
+  return esc(s.slice(0,at)) + '<mark class="hl">' + esc(s.slice(at,at+q.length)) + '</mark>' + esc(s.slice(at+q.length));
+}
+const isFiltering = () => !!(flt.q || flt.region || flt.phone || flt.status);
+
+/* Sự kiện thanh lọc */
+function bindFilters(){
+  const si = $("fSearch"), clr = $("fSearchClr");
+  si.addEventListener("input", () => {
+    flt.q = si.value;
+    clr.classList.toggle("show", !!si.value);
+    renderTable();
+  });
+  clr.addEventListener("click", () => { si.value=""; flt.q=""; clr.classList.remove("show"); renderTable(); si.focus(); });
+  $("fRegion").addEventListener("change", e => { flt.region = e.target.value; renderTable(); });
+  $("fPhone").addEventListener("change",  e => { flt.phone  = e.target.value; renderTable(); });
+  $("fStatus").addEventListener("change", e => { flt.status = e.target.value; renderTable(); });
+  $("fClearAll").addEventListener("click", () => {
+    flt = { q:"", region:"", phone:"", status:"" };
+    si.value=""; clr.classList.remove("show");
+    $("fRegion").value=""; $("fPhone").value=""; $("fStatus").value="";
+    renderTable();
+  });
+}
+
+function renderConnectedNotice(){
+  const count = rows.filter(r => ktStatus(ktMap[r.id]) === "ok").length;
+  $("connectedNotice").style.display = count ? "block" : "none";
+  $("connectedNoticeText").textContent = "✔ Có " + count + " khách hàng đã được nhân viên đánh dấu KẾT NỐI ĐƯỢC — sẵn sàng chọn xoá khỏi danh sách chạy.";
+}
+$("btnSelectConnected").addEventListener("click", () => {
+  flt = {q:"", region:"", phone:"", status:"ok"};
+  $("fSearch").value = ""; $("fSearchClr").classList.remove("show");
+  $("fRegion").value = ""; $("fPhone").value = ""; $("fStatus").value = "ok";
+  selSet.clear();
+  rows.forEach(r => { if(ktStatus(ktMap[r.id]) === "ok") selSet.add(r.id); });
+  renderTable();
+});
+
+function renderTable(){
+  renderConnectedNotice();
+  if(editingCell){ pendingRerender = true; return; }   // đang sửa inline → hoãn vẽ lại, tránh mất ô nhập
+  pendingRerender = false;
+  const tb = $("tbody");
+  rebuildFilterOptions();
+  const pendHtml = pending.map((p,i)=>`<tr class="new-row">
+      <td><span class="new-tag">MỚI</span></td>
+      <td><span class="f-badge">✍️</span></td>
+      <td><input data-p="${i}" data-k="daidien" value="${esc(p.daidien)}" placeholder="Người đại diện"></td>
+      <td><input data-p="${i}" data-k="ten" value="${esc(p.ten)}" placeholder="Tên khách hàng *"></td>
+      <td><input data-p="${i}" data-k="dienthoai" value="${esc(p.dienthoai)}" placeholder="Điện thoại" inputmode="tel"></td>
+      <td><input data-p="${i}" data-k="diachi" value="${esc(p.diachi)}" placeholder="Địa chỉ"></td>
+      <td><span style="color:#b3c2c8">—</span></td>
+      <td class="sel-cell"><button class="row-del" data-pdel="${i}" title="Bỏ hàng này">✕</button></td>
+    </tr>`).join("");
+
+  if(!rows.length && !pending.length){
+    tb.innerHTML = '<tr><td colspan="8"><div class="empty">Chưa có dữ liệu — tải file Excel ở Bước 1 hoặc bấm ➕ Thêm thủ công.</div></td></tr>';
+    $("meta").textContent = "";
+    $("btnRun").disabled = true;
+    refreshSelUI();
+    return;
+  }
+  const q = flt.q;
+  const view = getFilteredRows();
+  if(!view.length && !pending.length){
+    tb.innerHTML = '<tr><td colspan="8"><div class="empty">🔍 Không có khách hàng nào khớp bộ lọc hiện tại. Bấm <b>↺ Bỏ lọc</b> để xem lại toàn bộ.</div></td></tr>';
+    updateFilterInfo(0);
+    $("btnRun").disabled = !rows.length;
+    refreshSelUI();
+    return;
+  }
+  tb.innerHTML = pendHtml + view.map(({r,idx})=>{
+    const i = idx;
+    const v = ktMap[r.id], st = ktStatus(v), nv = ktName(v), sel = selSet.has(r.id);
+    const rowCls = st==="ok" ? "ok" : st==="tuchoi" ? "tc" : (v ? "kt" : "");
+    let ktCell;
+    if(st==="ok")          ktCell = '<span class="badge-ok">✔ KẾT NỐI ĐƯỢC</span><span class="del-flag">🗑 SẴN SÀNG XOÁ KHỎI DANH SÁCH CHẠY</span>';
+    else if(st==="tuchoi") ktCell = '<span class="badge-tc">✕ TỪ CHỐI</span><span class="del-flag">🗑 SẴN SÀNG XOÁ</span>';
+    else if(v)             ktCell = '<span class="badge-kt">✔ KHAI THÁC</span>';
+    else                   ktCell = '<span style="color:#b3c2c8">—</span>';
+    if(nv && v) ktCell += '<span class="badge-nv">🧑‍💼 '+esc(nv)+'</span>';
+    const dd = r.daidien ? '🧑‍💼 '+hlMark(r.daidien,q) : '<span style="color:#b3c2c8">—</span>';
+    return `<tr class="${rowCls}${sel?' selected':''}" data-rid="${esc(r.id||'')}">
+      <td class="stt">${i+1}</td>
+      <td>${r.f ? '<span class="f-badge" title="'+esc(r.f)+'">📁 '+((r.fi??0)+1)+'</span>' : '<span style="color:#b3c2c8">—</span>'}</td>
+      <td class="editable" data-id="${esc(r.id||'')}" data-k="daidien">${dd}<span class="edit-hint">✎ sửa</span></td>
+      <td class="editable" data-id="${esc(r.id||'')}" data-k="ten"><b>${hlMark(r.ten,q)}</b><span class="edit-hint">✎ sửa</span></td>
+      <td class="phone editable" data-id="${esc(r.id||'')}" data-k="dienthoai">${hlMark(r.dienthoai,q)}<span class="edit-hint">✎</span></td>
+      <td class="editable" data-id="${esc(r.id||'')}" data-k="diachi">${hlMark(r.diachi,q)}<span class="edit-hint">✎ sửa</span></td>
+      <td>${ktCell}</td>
+      <td class="sel-cell"><input type="checkbox" class="cbx row-sel" data-id="${esc(r.id||'')}" ${sel?'checked':''}></td>
+    </tr>`;
+  }).join("");
+  const ktCount = rows.filter(r=>ktMap[r.id] && !ktStatus(ktMap[r.id])).length;
+  const okCount = rows.filter(r=>ktStatus(ktMap[r.id])==="ok").length;
+  const tcCount = rows.filter(r=>ktStatus(ktMap[r.id])==="tuchoi").length;
+  $("meta").innerHTML = "Tổng <b>"+rows.length+"</b> khách hàng"
+    + (files.length ? " từ <b>"+files.length+"</b> file (chạy nối tiếp theo thứ tự)" : "")
+    + " · Đang khai thác: <b style='color:var(--amber)'>"+ktCount+"</b>"
+    + " · Kết nối được: <b style='color:var(--red)'>"+okCount+"</b>"
+    + " · Từ chối (sẵn sàng xoá): <b style='color:#6e7a81'>"+tcCount+"</b>"
+    + (pending.length ? ' · <b style="color:var(--green)">'+pending.length+' hàng mới chưa lưu</b>' : "");
+  updateFilterInfo(view.length);
+  $("btnRun").disabled = !rows.length;
+  refreshSelUI();
+}
+
+function updateFilterInfo(shown){
+  const el = $("fInfo");
+  if(!el) return;
+  el.textContent = isFiltering() ? ("Hiển thị " + shown + "/" + rows.length + " KH") : "";
+}
+
+/* ---------- Cài đặt: cập nhật live lên Firebase khi đang chạy ---------- */
+const settingIds = ["speed","fontSize","bottomOffset","txtColor","bgColor","prefix"];
+function readSettings(){
+  return {
+    speed: +$("speed").value,
+    fontSize: +$("fontSize").value,
+    bottomOffset: +$("bottomOffset").value,
+    color: $("txtColor").value,
+    bg: $("bgColor").value,
+    prefix: norm($("prefix").value),
+    region: ($("bcRegion") && $("bcRegion").value) || ""   /* ★ v9: khu vực admin phát */
+  };
+}
+function refreshLabels(){
+  $("speedVal").textContent = $("speed").value + " px/s";
+  $("fontSizeVal").textContent = $("fontSize").value + " px";
+  $("bottomOffsetVal").textContent = $("bottomOffset").value + " px";
+}
+let settleTimer = null;
+settingIds.forEach(id => $(id).addEventListener("input", () => {
+  refreshLabels();
+  if(ctrl.running && db){                 // đang chạy → đồng bộ live (debounce 350ms)
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => db.ref(FB_PATH + "/control").update(readSettings()), 350);
+  }
+}));
+refreshLabels();
+bindFilters();
+
+/* ---------- Điều khiển ---------- */
+$("btnRun").addEventListener("click", async () => {
+  if(!db) return toast("❌ Chưa kết nối Firebase");
+  if(!rows.length) return toast("⚠️ Chưa có dữ liệu");
+  try{
+    /* ★ v6: KHÔNG xoá khaithac khi bấm Chạy — đánh dấu KHAI THÁC /
+       KẾT NỐI ĐƯỢC được GIỮ NGUYÊN tuyệt đối. Muốn xoá đánh dấu phải
+       bấm nút "↺ Xoá đánh dấu Khai thác" (có xác nhận riêng).        */
+    await db.ref(FB_PATH).update({
+      data: rows,
+      control: Object.assign(readSettings(), {
+        running: true,
+        updatedAt: firebase.database.ServerValue.TIMESTAMP
+      })
+    });
+    dirtyLocal = false; remoteHasData = true;
+    toast("▶ Đang phát ticker tới mọi máy");
+  }catch(e){ toast("❌ Lỗi ghi Firebase: " + e.message); }
+});
+
+$("btnStop").addEventListener("click", async () => {
+  if(!db) return;
+  try{ await db.ref(FB_PATH + "/control/running").set(false); toast("⏹ Đã dừng ticker trên mọi máy"); }
+  catch(e){ toast("❌ " + e.message); }
+});
+
+/* ★ v9: Phát riêng theo khu vực — ghi ctrl.region lên Firebase, mọi máy lọc theo */
+$("btnBcRegion").addEventListener("click", async () => {
+  if(!db) return toast("❌ Chưa kết nối Firebase");
+  const rg = ($("bcRegion").value || "").trim();
+  try{
+    await db.ref(FB_PATH + "/control").update({
+      region: rg || null,
+      updatedAt: firebase.database.ServerValue.TIMESTAMP
+    });
+    toast(rg ? ("📡 Đang phát riêng khu vực: " + rg + " tới mọi máy") : "🌐 Đã phát TẤT CẢ khu vực (bỏ lọc)");
+  }catch(e){ toast("❌ " + e.message); }
+});
+
+$("btnResetKT").addEventListener("click", async () => {
+  if(!db) return;
+  if(!confirm("Xoá toàn bộ đánh dấu 'Khai thác' hiện tại?")) return;
+  /* ★ v6: bảo vệ KH ĐÃ KẾT NỐI — hỏi thêm trước khi xoá luôn các khung đỏ */
+  const okIds = Object.keys(ktMap).filter(id => ktMap[id] && typeof ktMap[id]==="object" && ktMap[id].status==="ok");
+  try{
+    if(okIds.length && confirm("Có " + okIds.length + " khách hàng ĐÃ KẾT NỐI ĐƯỢC (màu đỏ).\n\nBấm OK để GIỮ LẠI các khách này (chỉ xoá đánh dấu vàng/xám).\nBấm Cancel để xoá sạch toàn bộ.")){
+      const upd = {};
+      Object.keys(ktMap).forEach(id => { if(okIds.indexOf(id) === -1) upd[id] = null; });
+      await db.ref(FB_PATH + "/khaithac").update(upd);
+      toast("↺ Đã xoá đánh dấu — giữ lại " + okIds.length + " KH đã kết nối");
+    } else {
+      await db.ref(FB_PATH + "/khaithac").remove();
+      toast("↺ Đã xoá đánh dấu Khai thác");
+    }
+  }
+  catch(e){ toast("❌ " + e.message); }
+});
+
+$("btnClear").addEventListener("click", async () => {
+  if(!confirm("Xoá TOÀN BỘ dữ liệu (mọi file, cả trên Firebase) để upload danh sách khác?")) return;
+  files = []; rows = []; ktMap = {}; dirtyLocal = false; dataRev++;
+  selSet.clear(); pending = []; remoteHasData = false;
+  renderFileList();
+  renderTable();
+  if(db){
+    try{ await db.ref(FB_PATH).remove(); toast("🗑 Đã xoá toàn bộ dữ liệu — sẵn sàng upload file mới"); }
+    catch(e){ toast("❌ " + e.message); }
+  }
+});
+
+/* ---------- Lắng nghe Firebase (đồng bộ mọi máy, kể cả admin mở lại sau) ---------- */
+if(db){
+  db.ref(FB_PATH + "/data").on("value", s => {
+    const v = s.val();
+    remoteHasData = !!v;
+    if(dirtyLocal) return;               // đang soạn file mới local, không ghi đè
+    rows = Array.isArray(v) ? v : (v ? Object.keys(v).map(k=>v[k]) : []);
+    /* ★ Mở lại admin: dựng lại danh sách file (chip tên file) từ dữ liệu
+       remote, dựa trên tên file đã lưu ở mỗi dòng → KHÔNG mất tên file. */
+    files = [];
+    if(rows.length) materializeRemote();
+    dataRev++;
+    renderFileList();
+    renderTable();
+    if(ctrl.running) tickerBuild();      // xoá/thêm file lúc đang chạy → dựng lại ngay
+  });
+  let prevConnected = new Set();
+  let prevTuChoi = new Set();          // ID đã "Từ chối" ở lần cập nhật trước
+  db.ref(FB_PATH + "/khaithac").on("value", s => {
+    ktMap = s.val() || {};
+    /* KH bị "Từ chối" → TỰ ĐỘNG TÍCH CHỌN trên bảng để sẵn sàng xoá;
+       hoàn tác / đổi trạng thái → tự bỏ chọn */
+    const nowTuChoi = new Set(Object.keys(ktMap).filter(id => ktStatus(ktMap[id]) === "tuchoi"));
+    let newlyFlagged = 0;
+    nowTuChoi.forEach(id => { if(!prevTuChoi.has(id)){ selSet.add(id); newlyFlagged++; } });
+    prevTuChoi.forEach(id => { if(!nowTuChoi.has(id)) selSet.delete(id); });
+    prevTuChoi = nowTuChoi;
+    const nowConnected = new Set(Object.keys(ktMap).filter(id => ktStatus(ktMap[id]) === "ok"));
+    prevConnected.forEach(id => { if(!nowConnected.has(id) && !nowTuChoi.has(id)) selSet.delete(id); });
+    let newConnected = 0;
+    nowConnected.forEach(id => { if(!prevConnected.has(id)){ selSet.add(id); newConnected++; } });
+    prevConnected = nowConnected;
+    renderTable();
+    tickerRestyle();
+    if(newConnected) toast("✔ " + newConnected + " khách hàng KẾT NỐI ĐƯỢC — đã tích chọn; kiểm tra và bấm 🗑 Xoá dòng đã chọn để ngừng chạy");
+    else if(newlyFlagged) toast("✕ " + newlyFlagged + " khách hàng bị TỪ CHỐI — đã tự tích chọn, bấm 🗑 Xoá dòng đã chọn để loại khỏi danh sách");
+  });
+  db.ref(FB_PATH + "/control").on("value", s => {
+    ctrl = s.val() || {};
+    $("btnStop").disabled = !ctrl.running;
+    /* ★ v9: phản ánh khu vực đang phát */
+    if($("bcRegion") && document.activeElement !== $("bcRegion")){
+      const rg = ctrl.region || "";
+      if([...$("bcRegion").options].some(o=>o.value===rg)) $("bcRegion").value = rg;
+    }
+    if($("bcInfo")) $("bcInfo").innerHTML = ctrl.region
+      ? '📡 Đang phát riêng: <b style="color:var(--teal-d)">'+esc(ctrl.region)+'</b>'
+      : '🌐 Đang phát tất cả khu vực';
+    $("runMeta").innerHTML = ctrl.running
+      ? '🟢 Ticker <b style="color:var(--green)">ĐANG CHẠY</b> — rê chuột vào thanh để tạm dừng, <b>lăn bánh xe hoặc kéo-rê để tua nhanh</b>. Double-click: khung trắng → nhập tên NV (VÀNG) · khung vàng → chọn <b style="color:var(--red)">✔ Kết nối được (ĐỎ)</b> / <b style="color:#6e7a81">✕ Từ chối (XÁM, tự tích chọn để xoá)</b>.'
+      : '⚪ Ticker đang tắt.';
+    if(ctrl.running) tickerStart(); else tickerStop();
+  });
+}
+
+/* ================================================================
+   TICKER LIVE TRONG ADMIN — cùng logic với script nhúng
+================================================================ */
+const tkHost = $("tkHost"), tkBar = $("tkBar"), tkTrack = $("tkTrack");
+let tkX = 0, tkRaf = null, tkPaused = false, tkLastTs = 0, tkBuiltKey = "";
+
+function tickerBuild(){
+  const rg = ctrl.region || "";
+  const key = dataRev + "|" + rows.length + "|" + (ctrl.prefix||"") + "|" + (ctrl.updatedAt||0) + "|R:" + rg;
+  if(key === tkBuiltKey) return;
+  tkBuiltKey = key;
+  let html = "";
+  if(ctrl.prefix) html += '<span style="font-weight:800;opacity:.95">'+esc(ctrl.prefix)+'</span>';
+  if(rg) html += '<span style="font-weight:800;background:#3ad6a5;color:#04321f;border-radius:8px;padding:2px 10px">🗺 '+esc(rg)+'</span>';
+  let lastF = null, n = 0;
+  const list = rg ? rows.filter(r => extractRegion(r.diachi) === rg) : rows;
+  html += list.map((r,i)=>{
+    let sep = "";
+    if(r.f && r.f !== lastF){            // vách ngăn giữa các file nối tiếp
+      lastF = r.f;
+      sep = '<span style="font-weight:800;opacity:.8">📁 '+esc(r.f)+'</span>';
+    }
+    const parts = [];
+    if(r.daidien) parts.push("🧑‍💼 "+esc(r.daidien));
+    if(r.ten) parts.push("👤 <b>"+esc(r.ten)+"</b>");
+    if(r.dienthoai) parts.push("📞 "+esc(r.dienthoai));
+    if(r.diachi) parts.push("📍 "+esc(r.diachi));
+    return sep + '<span class="tk-chip" data-id="'+esc(r.id || i)+'"><span style="opacity:.6;font-size:.75em">'+(i+1)+'</span> '
+         + parts.join(' <span class="tk-sep">|</span> ')
+         + ' <span class="tk-note">KHAI THÁC</span></span>';
+  }).join("");
+  tkTrack.innerHTML = html;
+  tickerRestyle();
+  tkX = window.innerWidth;
+}
+function tickerRestyle(){
+  tkTrack.querySelectorAll(".tk-chip").forEach(ch => {
+    const v = ktMap[ch.dataset.id], st = ktStatus(v);
+    ch.classList.toggle("kt", !!v && !st);
+    ch.classList.toggle("ok", st === "ok");
+    ch.classList.toggle("tc", st === "tuchoi");
+    const note = ch.querySelector(".tk-note");
+    if(note){
+      const n = ktName(v);
+      const label = st==="ok" ? "✔ KẾT NỐI ĐƯỢC" : st==="tuchoi" ? "✕ TỪ CHỐI" : "KHAI THÁC";
+      note.textContent = n ? (n + " - " + label) : label;
+    }
+  });
+}
+function tickerApplyStyle(){
+  const fs = ctrl.fontSize || 17;
+  tkBar.style.background = ctrl.bg || "#0a2a30";
+  tkBar.style.height = Math.round(fs*2.6) + "px";
+  tkTrack.style.color = ctrl.color || "#7dfbd4";
+  tkTrack.style.fontSize = fs + "px";
+  tkHost.style.bottom = (ctrl.bottomOffset || 0) + "px";
+}
+function tkLoop(ts){
+  if(!tkLastTs) tkLastTs = ts;
+  const dt = Math.min((ts - tkLastTs)/1000, .1);
+  tkLastTs = ts;
+  if(!tkPaused && !tkPopOpen){
+    tkX -= (ctrl.speed || 110) * dt;
+    if(tkX < -tkTrack.scrollWidth) tkX = window.innerWidth;
+    tkTrack.style.transform = "translate3d("+tkX+"px,-50%,0)";
+  }
+  tkRaf = requestAnimationFrame(tkLoop);
+}
+function tickerStart(){
+  tickerBuild();
+  tickerApplyStyle();
+  tkHost.style.display = "block";
+  if(!tkRaf){ tkLastTs = 0; tkRaf = requestAnimationFrame(tkLoop); }
+}
+function tickerStop(){
+  tkHost.style.display = "none";
+  tkClosePop();
+  if(tkRaf){ cancelAnimationFrame(tkRaf); tkRaf = null; }
+  tkBuiltKey = "";
+}
+/* Hover tạm dừng để double-click dễ dàng */
+tkBar.addEventListener("mouseenter", ()=> tkPaused = true);
+tkBar.addEventListener("mouseleave", ()=> { if(!tkPopOpen) tkPaused = false; });
+/* Bánh xe chuột → tua nhanh tới/lui để tìm khách hàng cần khai thác
+   (lăn xuống = tua tới, lăn lên = tua lui; giữ Shift lăn ngang cũng được) */
+tkBar.addEventListener("wheel", e => {
+  e.preventDefault();
+  let d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+  if(e.deltaMode === 1) d *= 33;          // chuột trả delta theo dòng
+  tkX -= d * 2.5;                          // hệ số tua nhanh
+  const min = -tkTrack.scrollWidth, max = window.innerWidth;
+  if(tkX < min) tkX = max;                 // tua quá cuối → vòng về đầu
+  if(tkX > max) tkX = min + 10;            // tua ngược quá đầu → về cuối
+  tkTrack.style.transform = "translate3d("+tkX+"px,-50%,0)";
+}, {passive:false});
+/* Kéo-rê bằng chuột / chạm (tablet, laptop touchpad) cũng tua được — 
+   chỉ tính là kéo khi di >6px nên double-click vẫn hoạt động bình thường */
+let tkDrag = null;
+tkBar.addEventListener("pointerdown", e => { tkDrag = {x0:e.clientX, tk0:tkX, moved:false}; });
+window.addEventListener("pointermove", e => {
+  if(!tkDrag) return;
+  const dx = e.clientX - tkDrag.x0;
+  if(Math.abs(dx) > 6) tkDrag.moved = true;
+  if(tkDrag.moved){
+    tkPaused = true;
+    tkX = tkDrag.tk0 + dx;
+    const min = -tkTrack.scrollWidth, max = window.innerWidth;
+    if(tkX < min) tkX = min; if(tkX > max) tkX = max;
+    tkTrack.style.transform = "translate3d("+tkX+"px,-50%,0)";
+  }
+});
+window.addEventListener("pointerup", () => {
+  if(tkDrag && tkDrag.moved){
+    setTimeout(()=>{ if(!tkBar.matches(":hover") && !tkPopOpen) tkPaused = false; }, 120);
+  }
+  tkDrag = null;
+});
+/* ============ DOUBLE-CLICK khung KH — luồng trạng thái (giống script nhúng) ============
+   Chưa khai thác → popup nhập tên NV → VÀNG
+   Đã khai thác   → popup "✔ Kết nối được" (ĐỎ) / "✕ Từ chối" (XÁM + tự tích chọn xoá) */
+const tkPop1 = $("tkPop1"), tkPop1T = $("tkPop1T"), tkPop1I = $("tkPop1I");
+const tkPop2 = $("tkPop2"), tkPop2T = $("tkPop2T");
+const TK_LS_NAME = "ideco_tickerKH_staffName";
+let tkPopOpen = false, tkPopTargetId = null;
+
+function tkChipTen(chip){ const b = chip.querySelector("b"); return b ? b.textContent : ""; }
+function tkClosePop(){
+  tkPopOpen = false; tkPopTargetId = null;
+  tkPop1.classList.remove("show"); tkPop2.classList.remove("show");
+  setTimeout(()=>{ if(!tkBar.matches(":hover")) tkPaused = false; }, 120);
+}
+function tkOpenPop1(id, chip){
+  tkPopTargetId = id; tkPopOpen = true; tkPaused = true;
+  tkPop2.classList.remove("show");
+  tkPop1T.textContent = "🔖 Khai thác: " + (tkChipTen(chip) || ("KH #" + id));
+  try{ tkPop1I.value = localStorage.getItem(TK_LS_NAME) || ""; }catch(e){ tkPop1I.value = ""; }
+  tkPop1.classList.add("show");
+  setTimeout(()=>{ tkPop1I.focus(); tkPop1I.select(); }, 30);
+}
+function tkOpenPop2(id, chip){
+  tkPopTargetId = id; tkPopOpen = true; tkPaused = true;
+  tkPop1.classList.remove("show");
+  const nv = ktName(ktMap[id]);
+  tkPop2T.textContent = "📞 " + (nv ? nv + " · " : "") + (tkChipTen(chip) || ("KH #" + id)) + " — kết quả liên hệ?";
+  tkPop2.classList.add("show");
+}
+function tkSaveName(){
+  const name = (tkPop1I.value || "").trim();
+  if(!name){ tkPop1I.focus(); return; }
+  try{ localStorage.setItem(TK_LS_NAME, name); }catch(e){}
+  if(db && tkPopTargetId != null){
+    db.ref(FB_PATH + "/khaithac/" + tkPopTargetId).set({
+      name: name, at: firebase.database.ServerValue.TIMESTAMP
+    });
+  }
+  tkClosePop();
+}
+function tkSetStatus(status){
+  if(!db || tkPopTargetId == null) return tkClosePop();
+  const v = ktMap[tkPopTargetId];
+  /* ★ v6: KH đã KẾT NỐI ĐƯỢC → đổi trạng thái phải xác nhận, tránh mất */
+  if(v && typeof v === "object" && v.status === "ok" && status !== "ok"){
+    if(!confirm("Khách hàng này ĐÃ KẾT NỐI ĐƯỢC. Bạn chắc chắn muốn đổi sang trạng thái khác?")) { tkClosePop(); return; }
+  }
+  const obj = { status: status, statusAt: firebase.database.ServerValue.TIMESTAMP };
+  const n = ktName(v); if(n) obj.name = n;
+  if(v && typeof v === "object" && v.at) obj.at = v.at;
+  db.ref(FB_PATH + "/khaithac/" + tkPopTargetId).set(obj);
+  tkClosePop();
+}
+$("tkPop1OK").addEventListener("click", tkSaveName);
+$("tkPop1NO").addEventListener("click", tkClosePop);
+tkPop1I.addEventListener("keydown", e => {
+  if(e.key === "Enter"){ e.preventDefault(); tkSaveName(); }
+  if(e.key === "Escape"){ e.preventDefault(); tkClosePop(); }
+});
+$("tkPop2OK").addEventListener("click", ()=> tkSetStatus("ok"));
+$("tkPop2TC").addEventListener("click", ()=> tkSetStatus("tuchoi"));
+$("tkPop2UN").addEventListener("click", ()=>{
+  if(db && tkPopTargetId != null){
+    const v = ktMap[tkPopTargetId];
+    /* ★ v6: hoàn tác trên KH đã kết nối → phải xác nhận */
+    if(v && typeof v === "object" && v.status === "ok" &&
+       !confirm("Khách hàng này ĐÃ KẾT NỐI ĐƯỢC. Hoàn tác sẽ xoá đánh dấu kết nối. Tiếp tục?")){
+      tkClosePop(); return;
+    }
+    db.ref(FB_PATH + "/khaithac/" + tkPopTargetId).remove();
+  }
+  tkClosePop();
+});
+$("tkPop2X").addEventListener("click", tkClosePop);
+
+function tkChipActivate(chip){
+  if(!db) return;
+  const id = chip.dataset.id;
+  if(ktMap[id]) tkOpenPop2(id, chip);
+  else          tkOpenPop1(id, chip);
+}
+/* Tự phát hiện double-click (2 lần nhấn < 450ms) — ổn định cả chuột lẫn cảm ứng */
+let tkLastTapId = null, tkLastTapAt = 0;
+tkTrack.addEventListener("click", e => {
+  if(tkDrag && tkDrag.moved) return;
+  const chip = e.target.closest(".tk-chip");
+  if(!chip) return;
+  const id = chip.dataset.id, now = Date.now();
+  if(id === tkLastTapId && (now - tkLastTapAt) < 450){
+    tkLastTapId = null; tkLastTapAt = 0;
+    tkChipActivate(chip);
+  } else {
+    tkLastTapId = id; tkLastTapAt = now;
+  }
+});
+tkTrack.addEventListener("dblclick", e => {
+  const chip = e.target.closest(".tk-chip");
+  if(!chip) return;
+  e.preventDefault();
+  if(Date.now() - tkLastTapAt < 60) return;
+  tkChipActivate(chip);
+});
+/* Nghe thay đổi style live khi đang chạy */
+setInterval(()=>{ if(ctrl.running){ tickerApplyStyle(); } }, 600);
+</script>
+
+<script>
+/* ================= LOGIN GATE — bảo mật ứng dụng =================
+   - Mật khẩu không lưu dạng plain-text: chỉ so sánh SHA-256 hash
+   - "Ghi nhớ" → lưu token hash vào localStorage, không phải nhập lại trên máy này
+   - Đăng xuất → xoá token, hiện lại màn hình đăng nhập
+================================================================== */
+(function(){
+  const AUTH_KEY  = "ideco_ticker_auth";
+  const AUTH_HASH = "dfed41fb20c7bec0d4beee81b61d6ec5f2acd4403d8a450dd41a4351cf74d4f6"; /* SHA-256 */
+  const gate = document.getElementById("authGate");
+  const inp  = document.getElementById("authPass");
+  const btn  = document.getElementById("authBtn");
+  const eye  = document.getElementById("authEye");
+  const err  = document.getElementById("authErr");
+  const rem  = document.getElementById("authRemember");
+  const out  = document.getElementById("authLogout");
+
+  async function sha256(str){
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  }
+
+  function unlock(){
+    gate.style.display = "none";
+    document.body.style.overflow = "";
+  }
+  function lock(){
+    gate.style.display = "flex";
+    document.body.style.overflow = "hidden";
+    inp.value = ""; err.style.display = "none";
+    setTimeout(()=>inp.focus(), 100);
+  }
+
+  /* Tự đăng nhập nếu máy đã ghi nhớ */
+  try{
+    if(localStorage.getItem(AUTH_KEY) === AUTH_HASH){ unlock(); }
+    else { lock(); }
+  }catch(e){ lock(); }
+
+  async function tryLogin(){
+    const h = await sha256(inp.value.normalize("NFC"));
+    if(h === AUTH_HASH){
+      err.style.display = "none";
+      if(rem.checked){
+        try{ localStorage.setItem(AUTH_KEY, AUTH_HASH); }catch(e){}
+      }
+      unlock();
+    }else{
+      err.style.display = "block";
+      inp.value = "";
+      inp.focus();
+      /* rung nhẹ ô nhập */
+      inp.style.borderColor = "var(--red)";
+      inp.animate([{transform:"translateX(0)"},{transform:"translateX(-7px)"},{transform:"translateX(7px)"},{transform:"translateX(0)"}],{duration:220});
+      setTimeout(()=>{ inp.style.borderColor = "var(--line)"; }, 900);
+    }
+  }
+
+  btn.addEventListener("click", tryLogin);
+  inp.addEventListener("keydown", e => { if(e.key === "Enter") tryLogin(); });
+  eye.addEventListener("click", () => {
+    inp.type = inp.type === "password" ? "text" : "password";
+    eye.textContent = inp.type === "password" ? "👁️" : "🙈";
+    inp.focus();
+  });
+  out.addEventListener("click", () => {
+    if(!confirm("Đăng xuất khỏi ứng dụng trên máy này?")) return;
+    try{ localStorage.removeItem(AUTH_KEY); }catch(e){}
+    lock();
+  });
+})();
+</script>
+
+</body>
+</html>
